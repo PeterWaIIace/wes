@@ -1,0 +1,14 @@
+{
+  "tasks": [
+    {
+      "git_url": "git@github.com:PeterWaIIace/lighthouse.git",
+      "path": "src",
+      "command": "cat main.rs"
+    },
+    {
+      "git_url": "git@github.com:PeterWaIIace/lighthouse.git",
+      "path": ".",
+      "command": "ls -la"
+    }
+  ]
+}
