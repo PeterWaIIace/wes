@@ -1,0 +1,9 @@
+sequence:
+  - read_main:
+      git_url: git@github.com:PeterWaIIace/lighthouse.git
+      path: src
+      command: cat main.rs
+  - list_root:
+      git_url: git@github.com:PeterWaIIace/lighthouse.git
+      path: .
+      command: ls -la

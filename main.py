@@ -1,31 +1,48 @@
 #!/usr/bin/env python3
-import json
 import sys
 import os
 import shutil
 import subprocess
-from pathlib import Path
-from typing import List, Dict, Any
+from typing import List
 from dotenv import load_dotenv
 from urllib.parse import urlparse, urlunparse
+import yaml
 
 
 class Task:
-    def __init__(self, git_url: str, path: str, command: str):
+    def __init__(self, name: str, git_url: str, path: str, command: str):
+        self.name = name
         self.git_url = git_url
         self.path = path
         self.command = command
 
 
 def read_config(config_file: str) -> List[Task]:
-    """Read task configuration from JSON file."""
+    """Read task configuration from WES (YAML-based) file."""
     try:
-        with open(config_file, 'r') as f:
-            data = json.load(f)
+        with open(config_file, 'r', encoding='utf-8') as f:
+            data = yaml.safe_load(f) or {}
+
+        sequence = data.get('sequence')
+        if sequence is None:
+            sequence = data.get('tasks', [])
+
+        if not isinstance(sequence, list):
+            raise ValueError("Top-level 'sequence' must be a list of sequence elements")
         
         tasks = []
-        for task_data in data.get('tasks', []):
+        for task_entry in sequence:
+            if not isinstance(task_entry, dict) or len(task_entry) != 1:
+                raise ValueError(
+                    "Each sequence element must be an object with exactly one root task name"
+                )
+
+            task_name, task_data = next(iter(task_entry.items()))
+            if not isinstance(task_data, dict):
+                raise ValueError(f"Task '{task_name}' must contain task parameters")
+
             task = Task(
+                name=task_name,
                 git_url=task_data['git_url'],
                 path=task_data['path'],
                 command=task_data['command']
@@ -83,18 +100,19 @@ def execute_task(task: Task) -> None:
         print(f"Cloning repository from: {task.git_url}")
         result = subprocess.run(
             ["git", "clone", git_url, repo_path],
+            check=False,
             capture_output=True,
             text=True
         )
         
         if result.returncode != 0:
-            raise Exception(f"Failed to clone repository: {result.stderr}")
+            raise RuntimeError(f"Failed to clone repository: {result.stderr}")
         
         # Build the work directory path
         work_dir = os.path.join(repo_path, task.path)
         
         if not os.path.exists(work_dir):
-            raise Exception(f"Path {task.path} does not exist in repository")
+            raise RuntimeError(f"Path {task.path} does not exist in repository")
         
         # Execute the command
         print(f"Executing command in {work_dir}: {task.command}")
@@ -102,6 +120,7 @@ def execute_task(task: Task) -> None:
             task.command,
             shell=True,
             cwd=work_dir,
+            check=False,
             capture_output=True,
             text=True
         )
@@ -121,7 +140,7 @@ def execute_task(task: Task) -> None:
         shutil.rmtree(repo_path)
         
     except Exception as e:
-        print(f"Error executing task: {e}")
+        print(f"Error executing: {e}")
         # Try to clean up even if error occurred
         if os.path.exists(repo_path):
             shutil.rmtree(repo_path)
@@ -132,12 +151,12 @@ def main():
     # Load environment variables from .env file
     load_dotenv()
     
-    config_file = sys.argv[1] if len(sys.argv) > 1 else "tasks.json"
+    config_file = sys.argv[1] if len(sys.argv) > 1 else "tasks.wes"
     
     tasks = read_config(config_file)
     
     for task in tasks:
-        print(f"\nProcessing task: {task.git_url}")
+        print(f"\nProcessing sequence: {task.name} ({task.git_url})")
         execute_task(task)
 
 
