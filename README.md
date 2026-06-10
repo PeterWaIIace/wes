@@ -16,6 +16,12 @@ A Python utility that reads a `.wes` configuration, clones git repositories, exe
 pip install -r requirements.txt
 ```
 
+Install development tools:
+
+```bash
+pip install -e ".[dev]"
+```
+
 ## Configuration
 
 ### Optional: Git Credentials
@@ -45,6 +51,20 @@ python main.py
 Or specify a custom config file:
 ```bash
 python main.py path/to/config.wes
+```
+
+## Formatting and Linting
+
+Check and auto-fix style issues:
+
+```bash
+ruff check . --fix
+```
+
+Format code:
+
+```bash
+ruff format .
 ```
 
 ## WES Configuration Format

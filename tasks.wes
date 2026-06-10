@@ -10,5 +10,5 @@ sequence:
             - swarm-gym/fly-to-point.log 
         post:
             post.sh
-        time: # time period to check every second
-            4:00:00
+        cleanup:
+            True
