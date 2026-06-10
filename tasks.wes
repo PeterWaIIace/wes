@@ -1,9 +1,14 @@
 sequence:
-  - read_main:
-      git_url: git@github.com:PeterWaIIace/lighthouse.git
-      path: src
-      command: cat main.rs
-  - list_root:
-      git_url: git@github.com:PeterWaIIace/lighthouse.git
-      path: .
-      command: ls -la
+    task:
+        git_url: ssh://git@ben.ii.pw.edu.pl:9000/pwalas/swarm-gym.git
+        ssh: hpc
+        prepare:
+            - cd swarm-gym
+            - module load uv
+            - uv sync
+        sbatch: # 
+            - job.sh
+        check: # folder to sync with
+            - swarm-gym/fly-to-point.log 
+        time: # time period to check every second
+            4:00:00

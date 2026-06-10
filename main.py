@@ -8,142 +8,68 @@ from dotenv import load_dotenv
 from urllib.parse import urlparse, urlunparse
 import yaml
 
+prejob = """
+git clone {git_urlr}
+# preactions
+{actions}
+"""
+
+postjob = """
+scp {ssh_target} {to_path}
+"""
+
 
 class Task:
-    def __init__(self, name: str, git_url: str, path: str, command: str):
+    def __init__(self, name: str, git_url: str, path: str, ssh_config : str = "", sbatch: str = "", command: str = ""):
         self.name = name
+        self.ssh_config = ssh_config
         self.git_url = git_url
         self.path = path
         self.command = command
+        self.sbatch = sbatch
+
+    def ssh_rcp(self):
+        result = subprocess.run(
+            ['ssh', self.ssh_config, 'uptime'],
+            capture_output=True, text=True
+        )
+        if result.stdout:
+            print(result.stdout, end='')
+        if result.returncode != 0:
+            print(result.stderr, end='', file=sys.stderr)
 
 
-def read_config(config_file: str) -> List[Task]:
-    """Read task configuration from WES (YAML-based) file."""
-    try:
-        with open(config_file, 'r', encoding='utf-8') as f:
-            data = yaml.safe_load(f) or {}
+class WESParser:
 
-        sequence = data.get('sequence')
+    def __init__(self):
+        self.file_to_process = ""
+        self.task_count = 0
+
+    def get_next_task(self, data: dict) -> dict:
+        sequence = data.get('sequence', None)
         if sequence is None:
-            sequence = data.get('tasks', [])
-
-        if not isinstance(sequence, list):
-            raise ValueError("Top-level 'sequence' must be a list of sequence elements")
+            return sequence[list(sequence.keys())[0]] # get first and only task
+        task = sequence[list(sequence.keys())[self.task_count]]
+        return task
         
+    def parse(self, config_file: str) -> List[Task]:
+        """Parse WES configuration file and return list of Task objects."""
         tasks = []
-        for task_entry in sequence:
-            if not isinstance(task_entry, dict) or len(task_entry) != 1:
-                raise ValueError(
-                    "Each sequence element must be an object with exactly one root task name"
-                )
-
-            task_name, task_data = next(iter(task_entry.items()))
-            if not isinstance(task_data, dict):
-                raise ValueError(f"Task '{task_name}' must contain task parameters")
-
-            task = Task(
-                name=task_name,
-                git_url=task_data['git_url'],
-                path=task_data['path'],
-                command=task_data['command']
-            )
-            tasks.append(task)
+        with open(config_file, 'r', encoding='utf-8') as f:
+            data = yaml.safe_load(f) or {} 
+            task = self.get_next_task(data)
+            tasks.append(self.process_task(task))
         return tasks
-    except Exception as e:
-        print(f"Error reading config: {e}")
-        sys.exit(1)
 
+    def process_task(self, task_data: dict) -> Task:
+        """Convert task data from WES format to Task object."""
+        name = task_data.get('name', 'Unnamed Task')
+        git_url = task_data.get('git_url')
+        path = task_data.get('path', '.')
+        command = task_data.get('command', '')
+        ssh_config = task_data.get('ssh', '')
 
-def extract_repo_name(url: str) -> str:
-    """Extract repository name from git URL."""
-    name = url.split('/')[-1]
-    if name.endswith('.git'):
-        name = name[:-4]
-    return name
-
-
-def inject_credentials(git_url: str) -> str:
-    """Inject git credentials into HTTPS URL if available in .env."""
-    username = os.getenv('GIT_USERNAME')
-    password = os.getenv('GIT_PASSWORD')
-    
-    if not username or not password:
-        return git_url
-    
-    # Parse the URL
-    parsed = urlparse(git_url)
-    
-    # Inject credentials
-    netloc = f"{username}:{password}@{parsed.netloc}"
-    
-    # Reconstruct URL with credentials
-    return urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
-
-
-def execute_task(task: Task) -> None:
-    """Execute a single task: clone repo, run command, clean up."""
-    repo_name = extract_repo_name(task.git_url)
-    repo_path = f"/tmp/{repo_name}"
-    
-    try:
-        # Clean up if repo already exists
-        if os.path.exists(repo_path):
-            print(f"Removing existing directory: {repo_path}")
-            shutil.rmtree(repo_path)
-        
-        # Prepare git URL with credentials if using HTTPS
-        git_url = task.git_url
-        if git_url.startswith("https://"):
-            git_url = inject_credentials(git_url)
-        
-        # Clone the repository
-        print(f"Cloning repository from: {task.git_url}")
-        result = subprocess.run(
-            ["git", "clone", git_url, repo_path],
-            check=False,
-            capture_output=True,
-            text=True
-        )
-        
-        if result.returncode != 0:
-            raise RuntimeError(f"Failed to clone repository: {result.stderr}")
-        
-        # Build the work directory path
-        work_dir = os.path.join(repo_path, task.path)
-        
-        if not os.path.exists(work_dir):
-            raise RuntimeError(f"Path {task.path} does not exist in repository")
-        
-        # Execute the command
-        print(f"Executing command in {work_dir}: {task.command}")
-        result = subprocess.run(
-            task.command,
-            shell=True,
-            cwd=work_dir,
-            check=False,
-            capture_output=True,
-            text=True
-        )
-        
-        print("STDOUT:")
-        print(result.stdout)
-        
-        if result.stderr:
-            print("STDERR:")
-            print(result.stderr)
-        
-        if result.returncode != 0:
-            print(f"Command failed with status: {result.returncode}")
-        
-        # Clean up the repository
-        print(f"Cleaning up repository: {repo_path}")
-        shutil.rmtree(repo_path)
-        
-    except Exception as e:
-        print(f"Error executing: {e}")
-        # Try to clean up even if error occurred
-        if os.path.exists(repo_path):
-            shutil.rmtree(repo_path)
+        return Task(name=name, git_url=git_url, path=path, ssh_config=ssh_config, command=command)
 
 
 def main():
@@ -153,11 +79,12 @@ def main():
     
     config_file = sys.argv[1] if len(sys.argv) > 1 else "tasks.wes"
     
-    tasks = read_config(config_file)
+    wes = WESParser()
+    tasks = wes.parse(config_file)
     
     for task in tasks:
         print(f"\nProcessing sequence: {task.name} ({task.git_url})")
-        execute_task(task)
+        task.ssh_rcp()
 
 
 if __name__ == "__main__":
