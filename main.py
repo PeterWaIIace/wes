@@ -7,8 +7,6 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
-from typing import List
-
 prejob = """
 git clone {git_urlr}
 # preactions
@@ -21,7 +19,6 @@ scp {ssh_target} {to_path}
 
 
 class HealthCheckCtx:
-
     def __init__(self):
         self.default_path = "active_processes.yml"
         self.data = self.load()
@@ -54,6 +51,7 @@ class State(Enum):
     CANCELLED = "CANCELLED"
     TIMEOUT = "TIMEOUT"
 
+
 class Task:
     def __init__(
         self,
@@ -66,8 +64,8 @@ class Task:
         sbatch: str = "",
         command: str = "",
         cleanup: bool = False,
-        active_jobs : List[int] = [],
-        state : State = State.PENDING,
+        active_jobs: list[int] = None,
+        state: State = State.PENDING,
     ):
         self.name = name
         self.ssh_config = ssh_config
@@ -87,7 +85,7 @@ class Task:
             self.status = self.execute_remote_job()
         elif self.status == State.RUNNING:
             self.status = self.__health_check()
-        elif self.status is [State.COMPLETED, State.FAILED]:
+        elif self.status in [State.COMPLETED, State.FAILED]:
             self.jobs_ids = []
             self.execute_post_script()
             if self.cleanup_git:
@@ -106,7 +104,9 @@ class Task:
     def __cleanup_repository(self):
         repo_name = self.git_url.split("/")[-1].replace(".git", "")
         result = subprocess.run(
-            ["ssh", self.ssh_config, "rm", "-rf", repo_name], capture_output=True, text=True,
+            ["ssh", self.ssh_config, "rm", "-rf", repo_name],
+            capture_output=True,
+            text=True,
             check=True,
         )
         if result.stdout:
@@ -117,8 +117,8 @@ class Task:
     def __clone_repository(self):
         git_name = self.git_url.split("/")[-1].replace(".git", "")
         result = subprocess.run(
-            ["ssh", self.ssh_config, f"[ -d {git_name}/.git ]", "||", "git", "clone", self.git_url], 
-            capture_output=True, 
+            ["ssh", self.ssh_config, f"[ -d {git_name}/.git ]", "||", "git", "clone", self.git_url],
+            capture_output=True,
             text=True,
             check=True,
         )
@@ -129,7 +129,9 @@ class Task:
 
     def __scp_to(self, file):
         result = subprocess.run(
-            ["scp", file, f"{self.ssh_config}:{self.path}"], capture_output=True, text=True,
+            ["scp", file, f"{self.ssh_config}:{self.path}"],
+            capture_output=True,
+            text=True,
             check=True,
         )
         if result.stdout:
@@ -173,7 +175,7 @@ class Task:
             print(f"Submitted job with ID: {job_id}")
             self.jobs_ids.append(job_id)
         return State.RUNNING
-    
+
     def __health_check(self):
         for job_id in self.jobs_ids:
             result = subprocess.run(
@@ -183,9 +185,10 @@ class Task:
                 check=True,
             )
             raw = result.stdout.strip()
-            print(f"Health check output:\n{ raw}")
+            print(f"Health check output:\n{raw}")
             if raw == "":
                 return State.COMPLETED
+
 
 class WESParser:
     def __init__(self):
