@@ -1,1 +1,2 @@
-load module uv
+#!/bin/bash
+module load uv

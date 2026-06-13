@@ -4,7 +4,7 @@ sequence:
         ssh: hpc
         pre:
             pre.sh
-        sbatch: # 
+        sbatch:
             - job.sh
         check: # folder to sync with
             - swarm-gym/fly-to-point.log 
