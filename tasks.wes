@@ -2,10 +2,10 @@ sequence:
     task:
         git_url: ssh://git@ben.ii.pw.edu.pl:9000/pwalas/swarm-gym.git
         ssh: hpc
-        pre:
-            pre.sh
-        sbatch:
-            - job.sh
+        run:
+            - run.sh
+        job:
+            job.sh
         check: # folder to sync with
             - swarm-gym/fly-to-point.log 
         post:

@@ -58,10 +58,10 @@ class Task:
         name: str,
         git_url: str,
         path: str,
-        pre: str = "",
+        run: str = "",
         post: str = "",
         ssh_config: str = "",
-        sbatch: str = "",
+        job: str = None,
         command: str = "",
         cleanup: bool = False,
         active_jobs: list[int] = None,
@@ -72,34 +72,33 @@ class Task:
         self.git_url = git_url
         self.path = path
         self.command = command
-        self.sbatch = sbatch
-        self.pre = pre
+        self.job = job
+        self.run = run
         self.post = post
         self.cleanup_git = cleanup
         self.status = state
-        self.jobs_ids = active_jobs
+        self.jobs_ids = active_jobs if active_jobs is not None else []
 
     def execute(self):
-        print(f"current status: {self.status}")
         if self.status == State.PENDING:
+            self.__scp_to(self.job)
             self.status = self.execute_remote_job()
         elif self.status == State.RUNNING:
+            self.__check_pre_run()
+            self.__check_stderr()
+            self.__check_stdout()
             self.status = self.__health_check()
         elif self.status in [State.COMPLETED, State.FAILED]:
             self.jobs_ids = []
-            self.execute_post_script()
-            if self.cleanup_git:
-                self.cleanup_repository()
+            self.__execute_post_script()
+            # if self.cleanup_git:
+            #     self.__cleanup_repository()
         return self.status
 
     def execute_remote_job(self):
         self.__clone_repository()
-        self.__execurte_pre_script()
         self.__execture_job()
         return State.RUNNING
-        # self.__execute_post_script()
-        # if self.cleanup_git:
-        #     self.__cleanup_repository()
 
     def __cleanup_repository(self):
         repo_name = self.git_url.split("/")[-1].replace(".git", "")
@@ -139,17 +138,6 @@ class Task:
         if result.returncode != 0:
             print(result.stderr, end="", file=sys.stderr)
 
-    def __execurte_pre_script(self):
-        pre_script = Path(self.pre).read_text(encoding="utf-8")
-        ret = subprocess.run(
-            ["ssh", self.ssh_config, "bash -l -s"],
-            input=pre_script,  # sends local script content to remote bash stdin
-            text=True,
-            capture_output=True,
-            check=True,
-        )
-        print(f"Pre-script output:\n {ret.stdout}")
-
     def __execute_post_script(self):
         post_script = Path(self.post).read_text(encoding="utf-8")
         subprocess.run(
@@ -161,19 +149,32 @@ class Task:
         )
 
     def __execture_job(self):
-        self.jobs_ids = []
-        for job in self.sbatch:
-            print(f"Submitting job: {job}")
-            result = subprocess.run(
-                ["ssh", self.ssh_config, "sbatch", "--parsable", job],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            raw = result.stdout.strip()
-            job_id = raw.split(";")[0]
-            print(f"Submitted job with ID: {job_id}")
-            self.jobs_ids.append(job_id)
+        print(f"Submitting job: {self.run}")
+        commands = []
+        for frun in self.run:
+            with open(frun, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("#") or not line:
+                        continue
+                    if line:
+                        commands.append(f"{line} >> pre_run_output.txt")
+        commands += ["&&"]
+
+        commands += [f"sbatch --parsable {self.job}"]
+        final_payload = '"' + ' '.join(commands) + '"'
+
+        print(f"executing: {commands}")
+        result = subprocess.run(
+            ["ssh", self.ssh_config, "bash -lc", final_payload],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        raw = result.stdout.strip()
+        job_id = raw.split(";")[0]
+        print(f"Submitted job with ID: {job_id}")
+        self.jobs_ids.append(job_id)
         return State.RUNNING
 
     def __health_check(self):
@@ -189,6 +190,37 @@ class Task:
             if raw == "":
                 return State.COMPLETED
 
+    def __check_pre_run(self):
+        result = subprocess.run(
+            ["ssh", self.ssh_config, f'cat pre_run_output.txt'],
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        raw = result.stdout.strip()
+        print(f"Prerun check output:\n{raw}")
+
+    def __check_stdout(self):
+        for job_id in self.jobs_ids:
+            result = subprocess.run(
+                ["ssh", self.ssh_config, f'cat job_output.txt'],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            raw = result.stdout.strip()
+            print(f"Error check output:\n{raw}")
+
+    def __check_stderr(self):
+        for job_id in self.jobs_ids:
+            result = subprocess.run(
+                ["ssh", self.ssh_config, f'cat job_error.txt'],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            raw = result.stdout.strip()
+            print(f"Stdout check output:\n{raw}")
 
 class WESParser:
     def __init__(self):
@@ -223,8 +255,8 @@ class WESParser:
         path = task_data.get("path", ".")
         command = task_data.get("command", "")
         ssh_config = task_data.get("ssh", "")
-        sbatch = task_data.get("sbatch", "")
-        pre = task_data.get("pre", "")
+        job = task_data.get("job", "")
+        run = task_data.get("run", "")
         post = task_data.get("post", "")
         cleanup = task_data.get("cleanup", False)
 
@@ -235,8 +267,8 @@ class WESParser:
             ssh_config=ssh_config,
             command=command,
             cleanup=cleanup,
-            pre=pre,
-            sbatch=sbatch,
+            run=run,
+            job=job,
             post=post,
         )
 
