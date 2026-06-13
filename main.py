@@ -162,7 +162,7 @@ class Task:
         commands += ["&&"]
 
         commands += [f"sbatch --parsable {self.job}"]
-        final_payload = '"' + ' '.join(commands) + '"'
+        final_payload = '"' + " ".join(commands) + '"'
 
         print(f"executing: {commands}")
         result = subprocess.run(
@@ -192,7 +192,7 @@ class Task:
 
     def __check_pre_run(self):
         result = subprocess.run(
-            ["ssh", self.ssh_config, f'cat pre_run_output.txt'],
+            ["ssh", self.ssh_config, "cat pre_run_output.txt"],
             text=True,
             capture_output=True,
             check=True,
@@ -201,9 +201,9 @@ class Task:
         print(f"Prerun check output:\n{raw}")
 
     def __check_stdout(self):
-        for job_id in self.jobs_ids:
+        for _ in self.jobs_ids:
             result = subprocess.run(
-                ["ssh", self.ssh_config, f'cat job_output.txt'],
+                ["ssh", self.ssh_config, "cat job_output.txt"],
                 text=True,
                 capture_output=True,
                 check=True,
@@ -212,15 +212,16 @@ class Task:
             print(f"Error check output:\n{raw}")
 
     def __check_stderr(self):
-        for job_id in self.jobs_ids:
+        for _ in self.jobs_ids:
             result = subprocess.run(
-                ["ssh", self.ssh_config, f'cat job_error.txt'],
+                ["ssh", self.ssh_config, "cat job_error.txt"],
                 text=True,
                 capture_output=True,
                 check=True,
             )
             raw = result.stdout.strip()
             print(f"Stdout check output:\n{raw}")
+
 
 class WESParser:
     def __init__(self):
