@@ -64,6 +64,7 @@ class Task:
         job: str = None,
         command: str = "",
         cleanup: bool = False,
+        artifacts: list[int] = None,
         active_jobs: list[int] = None,
         state: State = State.PENDING,
     ):
@@ -78,6 +79,7 @@ class Task:
         self.cleanup_git = cleanup
         self.status = state
         self.jobs_ids = active_jobs if active_jobs is not None else []
+        self.artifacts = artifacts if artifacts is not None else []
 
     def execute(self):
         if self.status == State.PENDING:
@@ -93,6 +95,7 @@ class Task:
             self.__execute_post_script()
             # if self.cleanup_git:
             #     self.__cleanup_repository()
+        self.__sync_artifacts()
         return self.status
 
     def execute_remote_job(self):
@@ -129,6 +132,26 @@ class Task:
     def __scp_to(self, file):
         result = subprocess.run(
             ["scp", file, f"{self.ssh_config}:{self.path}"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.returncode != 0:
+            print(result.stderr, end="", file=sys.stderr)
+
+    def __sync_artifacts(self):
+        Path(self.name).mkdir(exist_ok=True)
+        for artifact in self.artifacts:
+            file_name = artifact.split("/")[-1]
+            tfile = "/".join(artifact.split("/")[1:])
+            path = artifact.split("/")[0]
+            self.__scp_from(path, tfile, f"{self.name}/{file_name}")
+
+    def __scp_from(self, path, tfile, cfile):
+        result = subprocess.run(
+            ["scp", f"{self.ssh_config}:~/{path}/{tfile}", cfile],
             capture_output=True,
             text=True,
             check=True,
@@ -259,6 +282,7 @@ class WESParser:
         job = task_data.get("job", "")
         run = task_data.get("run", "")
         post = task_data.get("post", "")
+        artifacts = task_data.get("artifacts", [])
         cleanup = task_data.get("cleanup", False)
 
         return Task(
@@ -271,6 +295,7 @@ class WESParser:
             run=run,
             job=job,
             post=post,
+            artifacts=artifacts,
         )
 
 

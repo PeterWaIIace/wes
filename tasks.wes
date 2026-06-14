@@ -6,8 +6,8 @@ sequence:
             - run.sh
         job:
             job.sh
-        check: # folder to sync with
-            - swarm-gym/fly-to-point.log 
+        artifacts: # folder to sync with
+            - swarm-gym/FlyToPointSingle_log/progress.csv 
         post:
             post.sh
         cleanup:
