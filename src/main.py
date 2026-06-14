@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
-import subprocess
 import sys
 import time
-from enum import Enum
 from pathlib import Path
 
-import yaml
 from dotenv import load_dotenv
 
-from .parser import WESParser
-from .tasks import Task
-from .states import State
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.parser import WESParser
+from src.states import State
+
 
 def main():
-    """Main entry point."""
     load_dotenv()
 
     config_file = sys.argv[1] if len(sys.argv) > 1 else "tasks.wes"

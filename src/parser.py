@@ -1,19 +1,10 @@
-#!/usr/bin/env python3
-import subprocess
-import sys
-import time
-from enum import Enum
-from pathlib import Path
-
 import yaml
-from dotenv import load_dotenv
 
 from .tasks import Task
-from .states import State
+
 
 class WESParser:
     def parse(self, config_file: str) -> list[Task]:
-        """Parse WES configuration file and return list of Task objects."""
         with open(config_file, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
         sequence = data.get("sequence", None)
@@ -35,7 +26,6 @@ class WESParser:
         return [self.process_task(t) for t in tasks_data]
 
     def process_task(self, task_data: dict) -> Task:
-        """Convert task data from WES format to Task object."""
         name = task_data.get("name", "Unnamed Task")
         git_url = task_data.get("git_url")
         path = task_data.get("path", ".")
@@ -57,4 +47,3 @@ class WESParser:
             post=post,
             artifacts=artifacts,
         )
-

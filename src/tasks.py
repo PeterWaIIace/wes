@@ -1,14 +1,9 @@
-#!/usr/bin/env python3
 import subprocess
 import sys
-import time
-from enum import Enum
 from pathlib import Path
 
-import yaml
-from dotenv import load_dotenv
-
 from .states import State
+
 
 class Task:
     def __init__(
@@ -187,7 +182,8 @@ class Task:
             capture_output=True,
         )
         raw = result.stdout.strip()
-        print(f"Prerun output:\n{raw}")
+        if raw:
+            print(f"Prerun output:\n{raw}")
 
     def __check_stdout(self):
         result = subprocess.run(
@@ -196,7 +192,8 @@ class Task:
             capture_output=True,
         )
         raw = result.stdout.strip()
-        print(f"Job stdout:\n{raw}")
+        if raw:
+            print(f"Job stdout:\n{raw}")
 
     def __check_stderr(self):
         result = subprocess.run(
@@ -205,5 +202,5 @@ class Task:
             capture_output=True,
         )
         raw = result.stdout.strip()
-        print(f"Job stderr:\n{raw}")
-
+        if raw:
+            print(f"Job stderr:\n{raw}")

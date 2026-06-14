@@ -45,12 +45,12 @@ GIT_PASSWORD=your_github_token_or_password
 
 Run with default config file (`tasks.wes`):
 ```bash
-python main.py
+python src/main.py
 ```
 
 Or specify a custom config file:
 ```bash
-python main.py path/to/config.wes
+python src/main.py path/to/config.wes
 ```
 
 ## Formatting and Linting

@@ -20,7 +20,7 @@ install-dev:
 	$(PYTHON) -m pip install -e ".[dev]"
 
 run:
-	$(PYTHON) main.py $(CONFIG)
+	$(PYTHON) src/main.py $(CONFIG)
 
 lint:
 	ruff check .
