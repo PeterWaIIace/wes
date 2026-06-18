@@ -60,14 +60,14 @@ class Task:
             self.__check_pre_run()
             self.__check_stderr()
             self.__check_stdout()
+            self.__sync_artifacts()
             self.status = self.__health_check()
-        elif self.status in [State.COMPLETED, State.FAILED]:
+        if self.status in [State.COMPLETED, State.FAILED]:
             self.jobs_ids = []
             self.__execute_post_script()
+            self.__sync_artifacts()
             if self.cleanup_git:
                 self.__cleanup_repository()
-        if self.status in [State.COMPLETED, State.FAILED]:
-            self.__sync_artifacts()
         return self.status
 
     def execute_remote_job(self):
@@ -116,17 +116,18 @@ class Task:
         for artifact in self.artifacts:
             path = artifact.split("/")[0]
             tfile = "/".join(artifact.split("/")[1:])
-            dest = Path("results") / self.name / artifact
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            self.__scp_from(path, tfile, str(dest))
+            dest = Path("results") / self.name / path
+            dest.mkdir(parents=True, exist_ok=True)
+            self.__scp_from(path, tfile + "/.", str(dest), r=True)
 
     def __scp_from(self, path, tfile, cfile, r=False):
         if not tfile or not cfile:
             print("No file specified for SCP", file=sys.stderr)
             return
-        cmd = ["scp", f"{self.ssh_config}:~/{path}/{tfile}", cfile]
+        src = f"{self.ssh_config}:~/{path}/{tfile}"
+        cmd = ["rsync", "-e", "ssh", src, cfile]
         if r:
-            cmd = ["scp", "-r", f"{self.ssh_config}:~/{path}/{tfile}", cfile]
+            cmd = ["rsync", "-r", "-e", "ssh", src, cfile]
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -135,7 +136,7 @@ class Task:
         )
         if result.returncode != 0:
             print(
-                f"Warning: scp from remote failed (return code {result.returncode}): {result.stderr.strip()}",
+                f"Warning: rsync from remote failed (return code {result.returncode}): {result.stderr.strip()}",
                 file=sys.stderr,
             )
 
