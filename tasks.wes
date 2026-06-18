@@ -1,14 +1,15 @@
 sequence:
-    task:
+    fly-to-point:
         git_url: ssh://git@ben.ii.pw.edu.pl:9000/pwalas/swarm-gym.git
+        branch: experiment-fly-to-point
         ssh: hpc
         run:
-            - run.sh
+            - bach_example/run.sh
         job:
-            job.sh
+            bach_example/job.sh
         artifacts: # folder to sync with
-            - swarm-gym/FlyToPointSingle_log/progress.csv 
+            - swarm-gym/results
         post:
-            post.sh
+            bach_example/post.sh
         cleanup:
             True

@@ -28,6 +28,7 @@ class WESParser:
     def process_task(self, task_data: dict) -> Task:
         name = task_data.get("name", "Unnamed Task")
         git_url = task_data.get("git_url")
+        branch = task_data.get("branch", "")
         path = task_data.get("path", ".")
         ssh_config = task_data.get("ssh", "")
         job = task_data.get("job", "")
@@ -39,6 +40,7 @@ class WESParser:
         return Task(
             name=name,
             git_url=git_url,
+            branch=branch,
             path=path,
             ssh_config=ssh_config,
             cleanup=cleanup,

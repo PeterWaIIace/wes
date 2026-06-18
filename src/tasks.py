@@ -15,6 +15,7 @@ class Task:
         post: str = "",
         ssh_config: str = "",
         job: str = None,
+        branch: str = "",
         cleanup: bool = False,
         artifacts: list[str] = None,
         active_jobs: list[str] = None,
@@ -23,6 +24,7 @@ class Task:
         self.name = name
         self.ssh_config = ssh_config
         self.git_url = git_url
+        self.branch = branch
         self.path = path
         self.job = job
         self.run = run
@@ -56,60 +58,58 @@ class Task:
 
     def __cleanup_repository(self):
         repo_name = self.git_url.split("/")[-1].replace(".git", "")
-        result = subprocess.run(
+        subprocess.run(
             ["ssh", self.ssh_config, "rm", "-rf", repo_name],
             capture_output=True,
             text=True,
+            check=True,
         )
-        if result.stdout:
-            print(result.stdout, end="")
-        if result.returncode != 0:
-            print(result.stderr, end="", file=sys.stderr)
 
     def __clone_repository(self):
         git_name = self.git_url.split("/")[-1].replace(".git", "")
-        result = subprocess.run(
-            ["ssh", self.ssh_config, f"[ -d {git_name}/.git ]", "||", "git", "clone", self.git_url],
+        clone_cmd = ["git", "clone"]
+        if self.branch:
+            clone_cmd += ["-b", self.branch]
+        clone_cmd.append(self.git_url)
+        subprocess.run(
+            ["ssh", self.ssh_config, f"[ -d {git_name}/.git ]", "||", *clone_cmd],
             capture_output=True,
             text=True,
+            check=True,
         )
-        if result.stdout:
-            print(result.stdout, end="")
-        if result.returncode != 0:
-            print(result.stderr, end="", file=sys.stderr)
 
-    def __scp_to(self, file):
+    def __scp_to(self, file, r=False):
         if not file:
             print("No file specified for SCP", file=sys.stderr)
             return
-        result = subprocess.run(
-            ["scp", file, f"{self.ssh_config}:{self.path}"],
-            capture_output=True,
-            text=True,
-        )
+        cmd = ["scp", file, f"{self.ssh_config}:{self.path}"]
+        if r:
+            cmd = ["scp", "-r", file, f"{self.ssh_config}:{self.path}"]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         if result.stdout:
             print(result.stdout, end="")
-        if result.returncode != 0:
-            print(result.stderr, end="", file=sys.stderr)
 
     def __sync_artifacts(self):
-        Path(self.name).mkdir(exist_ok=True)
         for artifact in self.artifacts:
-            file_name = artifact.split("/")[-1]
-            tfile = "/".join(artifact.split("/")[1:])
             path = artifact.split("/")[0]
-            self.__scp_from(path, tfile, f"{self.name}/{file_name}")
+            tfile = "/".join(artifact.split("/")[1:])
+            dest = Path(self.name) / artifact
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            self.__scp_from(path, tfile, str(dest))
 
-    def __scp_from(self, path, tfile, cfile):
-        result = subprocess.run(
-            ["scp", f"{self.ssh_config}:~/{path}/{tfile}", cfile],
+    def __scp_from(self, path, tfile, cfile, r=False):
+        if not tfile or not cfile:
+            print("No file specified for SCP", file=sys.stderr)
+            return
+        cmd = ["scp", f"{self.ssh_config}:~/{path}/{tfile}", cfile]
+        if r:
+            cmd = ["scp", "-r", f"{self.ssh_config}:~/{path}/{tfile}", cfile]
+        subprocess.run(
+            cmd,
             capture_output=True,
             text=True,
+            check=True,
         )
-        if result.stdout:
-            print(result.stdout, end="")
-        if result.returncode != 0:
-            print(result.stderr, end="", file=sys.stderr)
 
     def __execute_post_script(self):
         if not self.post:
@@ -117,16 +117,13 @@ class Task:
         post_script = Path(self.post).read_text(encoding="utf-8")
         if not post_script.strip():
             return
-        result = subprocess.run(
+        subprocess.run(
             ["ssh", self.ssh_config, "bash -s"],
             input=post_script,
             text=True,
             capture_output=True,
+            check=True,
         )
-        if result.stdout:
-            print(result.stdout, end="")
-        if result.returncode != 0:
-            print(result.stderr, end="", file=sys.stderr)
 
     def __execute_job(self):
         print(f"Submitting job: {self.run}")
@@ -147,13 +144,15 @@ class Task:
         final_payload = '"' + " ".join(commands) + '"'
 
         print(f"executing: {commands}")
-        result = subprocess.run(
-            ["ssh", self.ssh_config, "bash -lc", final_payload],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            print(f"Failed to submit job:\n{result.stderr}", file=sys.stderr)
+        try:
+            result = subprocess.run(
+                ["ssh", self.ssh_config, "bash -lc", final_payload],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"Failed to submit job:\n{e.stderr}", file=sys.stderr)
             return State.FAILED
         raw = result.stdout.strip()
         job_id = raw.split(";")[0]
@@ -167,6 +166,7 @@ class Task:
                 ["ssh", self.ssh_config, f'squeue -h -j {job_id} -o "%T"'],
                 text=True,
                 capture_output=True,
+                check=True,
             )
             raw = result.stdout.strip()
             if raw:
@@ -175,31 +175,42 @@ class Task:
                 return State.COMPLETED
         return State.RUNNING
 
+    def __fetch_output(self, remote_file):
+        Path(self.name).mkdir(parents=True, exist_ok=True)
+        local_path = Path(self.name) / remote_file
+        self.__scp_from("", remote_file, str(local_path), r=True)
+
     def __check_pre_run(self):
+        self.__fetch_output("pre_run_output.txt")
         result = subprocess.run(
             ["ssh", self.ssh_config, "cat pre_run_output.txt"],
             text=True,
             capture_output=True,
+            check=True,
         )
         raw = result.stdout.strip()
         if raw:
             print(f"Prerun output:\n{raw}")
 
     def __check_stdout(self):
+        self.__fetch_output("job_output.txt")
         result = subprocess.run(
             ["ssh", self.ssh_config, "cat job_output.txt"],
             text=True,
             capture_output=True,
+            check=True,
         )
         raw = result.stdout.strip()
         if raw:
             print(f"Job stdout:\n{raw}")
 
     def __check_stderr(self):
+        self.__fetch_output("job_error.txt")
         result = subprocess.run(
             ["ssh", self.ssh_config, "cat job_error.txt"],
             text=True,
             capture_output=True,
+            check=True,
         )
         raw = result.stdout.strip()
         if raw:
