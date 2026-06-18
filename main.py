@@ -20,7 +20,7 @@ def main():
     tasks = wes.parse(config_file)
 
     for task in tasks:
-        print(f"\nProcessing sequence: {task.name}")
+        print(f"\n▸ {task.name}")
         task.execute()
         while task.status == State.RUNNING:
             time.sleep(10)

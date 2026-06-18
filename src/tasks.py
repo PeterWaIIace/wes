@@ -1,8 +1,26 @@
+import re
 import subprocess
 import sys
 from pathlib import Path
+from shutil import get_terminal_size
 
 from .states import State
+
+SEP = "─"
+_ANSI = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x1b]*\x1b\\")
+
+
+def _strip_ansi(text):
+    return _ANSI.sub("", text)
+
+
+def _sep(label=""):
+    w = get_terminal_size().columns
+    if label:
+        left = f" {label} "
+        right = SEP * (w - len(left) - 2)
+        return f" {left}{right}"
+    return SEP * w
 
 
 class Task:
@@ -53,8 +71,10 @@ class Task:
         return self.status
 
     def execute_remote_job(self):
-        self.__clone_repository()
         return self.__execute_job()
+
+    def _log(self, msg, kind="•"):
+        print(f"  {kind} {msg}")
 
     def __cleanup_repository(self):
         repo_name = self.git_url.split("/")[-1].replace(".git", "")
@@ -67,12 +87,15 @@ class Task:
 
     def __clone_repository(self):
         git_name = self.git_url.split("/")[-1].replace(".git", "")
-        clone_cmd = ["git", "clone"]
         if self.branch:
-            clone_cmd += ["-b", self.branch]
-        clone_cmd.append(self.git_url)
+            update_cmd = f"cd {git_name} && git fetch origin && git reset --hard origin/{self.branch}"
+            clone_cmd = f"git clone -b {self.branch} {self.git_url}"
+        else:
+            update_cmd = f"cd {git_name} && git pull --ff-only"
+            clone_cmd = f"git clone {self.git_url}"
+        cmd = f"if [ -d {git_name}/.git ]; then {update_cmd}; else {clone_cmd}; fi"
         subprocess.run(
-            ["ssh", self.ssh_config, f"[ -d {git_name}/.git ]", "||", *clone_cmd],
+            ["ssh", self.ssh_config, cmd],
             capture_output=True,
             text=True,
             check=True,
@@ -80,7 +103,7 @@ class Task:
 
     def __scp_to(self, file, r=False):
         if not file:
-            print("No file specified for SCP", file=sys.stderr)
+            self._log("no file specified for SCP", "⚠")
             return
         cmd = ["scp", file, f"{self.ssh_config}:{self.path}"]
         if r:
@@ -131,7 +154,9 @@ class Task:
         )
 
     def __execute_job(self):
-        print(f"Submitting job: {self.run}")
+        self._log("cloning repository", "▶")
+        self.__clone_repository()
+        self._log("submitting job via sbatch", "▶")
         commands = []
         for frun in self.run:
             try:
@@ -142,13 +167,12 @@ class Task:
                             continue
                         commands.append(f"{line} >> pre_run_output.txt")
             except FileNotFoundError:
-                print(f"Run script not found: {frun}", file=sys.stderr)
+                self._log(f"run script not found: {frun}", "⚠")
         if commands:
             commands += ["&&"]
         commands += [f"sbatch --parsable {Path(self.path, Path(self.job).name)}"]
         final_payload = '"' + " ".join(commands) + '"'
 
-        print(f"executing: {commands}")
         try:
             result = subprocess.run(
                 ["ssh", self.ssh_config, "bash -lc", final_payload],
@@ -157,11 +181,11 @@ class Task:
                 check=True,
             )
         except subprocess.CalledProcessError as e:
-            print(f"Failed to submit job:\n{e.stderr}", file=sys.stderr)
+            self._log(f"sbatch failed:\n{e.stderr}", "✗")
             return State.FAILED
         raw = result.stdout.strip()
         job_id = raw.split(";")[0]
-        print(f"Submitted job with ID: {job_id}")
+        self._log(f"job {job_id} submitted", "✓")
         self.jobs_ids.append(job_id)
         return State.RUNNING
 
@@ -175,8 +199,9 @@ class Task:
             )
             raw = result.stdout.strip()
             if raw:
-                print(f"Health check - job {job_id}: {raw}")
+                self._log(f"job {job_id}: {raw}", "◌")
             else:
+                self._log(f"job {job_id}: completed", "✓")
                 return State.COMPLETED
         return State.RUNNING
 
@@ -196,7 +221,9 @@ class Task:
         )
         raw = result.stdout.strip()
         if raw:
-            print(f"Prerun output:\n{raw}")
+            print(f"\n{_sep('pre')}")
+            print(_strip_ansi(raw))
+            print(f"{_sep()}")
 
     def __check_stdout(self):
         self.__fetch_output("job_output.txt")
@@ -208,7 +235,9 @@ class Task:
         )
         raw = result.stdout.strip()
         if raw:
-            print(f"Job stdout:\n{raw}")
+            print(f"\n{_sep('out')}")
+            print(_strip_ansi(raw))
+            print(f"{_sep()}")
 
     def __check_stderr(self):
         self.__fetch_output("job_error.txt")
@@ -220,4 +249,6 @@ class Task:
         )
         raw = result.stdout.strip()
         if raw:
-            print(f"Job stderr:\n{raw}")
+            print(f"\n{_sep('err')}")
+            print(_strip_ansi(raw))
+            print(f"{_sep()}")
