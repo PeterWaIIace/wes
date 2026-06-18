@@ -93,7 +93,7 @@ class Task:
         for artifact in self.artifacts:
             path = artifact.split("/")[0]
             tfile = "/".join(artifact.split("/")[1:])
-            dest = Path(self.name) / artifact
+            dest = Path("results") / self.name / artifact
             dest.parent.mkdir(parents=True, exist_ok=True)
             self.__scp_from(path, tfile, str(dest))
 
@@ -104,12 +104,17 @@ class Task:
         cmd = ["scp", f"{self.ssh_config}:~/{path}/{tfile}", cfile]
         if r:
             cmd = ["scp", "-r", f"{self.ssh_config}:~/{path}/{tfile}", cfile]
-        subprocess.run(
+        result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            check=True,
+            check=False,
         )
+        if result.returncode != 0:
+            print(
+                f"Warning: scp from remote failed (return code {result.returncode}): {result.stderr.strip()}",
+                file=sys.stderr,
+            )
 
     def __execute_post_script(self):
         if not self.post:
@@ -140,7 +145,7 @@ class Task:
                 print(f"Run script not found: {frun}", file=sys.stderr)
         if commands:
             commands += ["&&"]
-        commands += [f"sbatch --parsable {self.job}"]
+        commands += [f"sbatch --parsable {Path(self.path, Path(self.job).name)}"]
         final_payload = '"' + " ".join(commands) + '"'
 
         print(f"executing: {commands}")
@@ -176,8 +181,9 @@ class Task:
         return State.RUNNING
 
     def __fetch_output(self, remote_file):
-        Path(self.name).mkdir(parents=True, exist_ok=True)
-        local_path = Path(self.name) / remote_file
+        local_dir = Path("results") / self.name
+        local_dir.mkdir(parents=True, exist_ok=True)
+        local_path = local_dir / remote_file
         self.__scp_from("", remote_file, str(local_path), r=True)
 
     def __check_pre_run(self):

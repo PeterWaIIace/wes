@@ -16,6 +16,7 @@ module load uv
 export PYTHONWARNINGS="ignore"
 export OPENCV_VIDEOIO_PRIORITY_MSMF=0
 export QT_QPA_PLATFORM=offscreen
+
 cd swarm-gym
 export UV_CACHE_DIR=/net/obelix/homes/pwalas1/.cache/uv
 uv run experiments/fly_to_point.py
