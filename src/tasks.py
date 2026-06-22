@@ -127,7 +127,7 @@ class Task:
         src = f"{self.ssh_config}:~/{path}/{tfile}"
         cmd = ["rsync", "-e", "ssh", src, cfile]
         if r:
-            cmd = ["rsync", "-r", "-e", "ssh", src, cfile]
+            cmd = ["rsync", "-r", "--no-inc-recursive", "-e", "ssh", src, cfile]
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -158,7 +158,7 @@ class Task:
         self._log("cloning repository", "▶")
         self.__clone_repository()
         self._log("submitting job via sbatch", "▶")
-        commands = []
+        script_lines = []
         for frun in self.run:
             try:
                 with open(frun, encoding="utf-8") as f:
@@ -166,17 +166,18 @@ class Task:
                         line = line.strip()
                         if line.startswith("#") or not line:
                             continue
-                        commands.append(f"{line} >> pre_run_output.txt")
+                        script_lines.append(line)
             except FileNotFoundError:
                 self._log(f"run script not found: {frun}", "⚠")
-        if commands:
-            commands += ["&&"]
-        commands += [f"sbatch --parsable {Path(self.path, Path(self.job).name)}"]
-        final_payload = '"' + " ".join(commands) + '"'
+        script_lines.append(
+            f"sbatch --parsable {Path(self.path, Path(self.job).name)}"
+        )
+        full_script = "exec > pre_run_output.txt 2>&1\n" + "\n".join(script_lines)
 
         try:
             result = subprocess.run(
-                ["ssh", self.ssh_config, "bash -lc", final_payload],
+                ["ssh", self.ssh_config, "bash -ls"],
+                input=full_script,
                 capture_output=True,
                 text=True,
                 check=True,
@@ -190,18 +191,39 @@ class Task:
         self.jobs_ids.append(job_id)
         return State.RUNNING
 
+    def has_alive_jobs(self) -> bool:
+        if not self.jobs_ids:
+            return False
+        for job_id in self.jobs_ids:
+            try:
+                result = subprocess.run(
+                    ["ssh", self.ssh_config, f'squeue -h -j {job_id} -o "%T"'],
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                )
+                if result.stdout.strip():
+                    return True
+            except subprocess.CalledProcessError:
+                pass
+        return False
+
     def __health_check(self):
         for job_id in self.jobs_ids:
-            result = subprocess.run(
-                ["ssh", self.ssh_config, f'squeue -h -j {job_id} -o "%T"'],
-                text=True,
-                capture_output=True,
-                check=True,
-            )
-            raw = result.stdout.strip()
-            if raw:
-                self._log(f"job {job_id}: {raw}", "◌")
-            else:
+            try:
+                result = subprocess.run(
+                    ["ssh", self.ssh_config, f'squeue -h -j {job_id} -o "%T"'],
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                )
+                raw = result.stdout.strip()
+                if raw:
+                    self._log(f"job {job_id}: {raw}", "◌")
+                else:
+                    self._log(f"job {job_id}: completed", "✓")
+                    return State.COMPLETED
+            except subprocess.CalledProcessError:
                 self._log(f"job {job_id}: completed", "✓")
                 return State.COMPLETED
         return State.RUNNING

@@ -21,7 +21,11 @@ def main():
     for name, data in cache.get_all().items():
         state = State(data["state"])
         if state in (State.RUNNING, State.PENDING):
-            cached_tasks[name] = JobCache.cached_task(name, data)
+            task = JobCache.cached_task(name, data)
+            if task.has_alive_jobs():
+                cached_tasks[name] = task
+            else:
+                cache.remove(name)
         else:
             cache.remove(name)
 
@@ -41,7 +45,7 @@ def main():
             cache.set(task.name, JobCache.task_to_cache_data(task))
 
         while task.status == State.RUNNING:
-            time.sleep(10)
+            time.sleep(2)
             task.execute()
 
         if task.status in (State.COMPLETED, State.FAILED):
