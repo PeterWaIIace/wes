@@ -7,13 +7,19 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.cache import JobCache
+from src.cache import CACHE_FILE, JobCache
 from src.parser import WESParser
 from src.states import State
 
 
 def main():
     load_dotenv()
+
+    if "--clean" in sys.argv:
+        if CACHE_FILE.exists():
+            CACHE_FILE.unlink()
+            print("Cache file removed.")
+        return
 
     cache = JobCache()
 

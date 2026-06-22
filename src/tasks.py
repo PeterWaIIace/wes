@@ -88,7 +88,9 @@ class Task:
     def __clone_repository(self):
         git_name = self.git_url.split("/")[-1].replace(".git", "")
         if self.branch:
-            update_cmd = f"cd {git_name} && git fetch origin && git reset --hard origin/{self.branch}"
+            update_cmd = (
+                f"cd {git_name} && git fetch origin && git reset --hard origin/{self.branch}"
+            )
             clone_cmd = f"git clone -b {self.branch} {self.git_url}"
         else:
             update_cmd = f"cd {git_name} && git pull --ff-only"
@@ -136,7 +138,8 @@ class Task:
         )
         if result.returncode != 0:
             print(
-                f"Warning: rsync from remote failed (return code {result.returncode}): {result.stderr.strip()}",
+                "Warning: rsync from remote failed"
+                f" (return code {result.returncode}): {result.stderr.strip()}",
                 file=sys.stderr,
             )
 
@@ -169,9 +172,7 @@ class Task:
                         script_lines.append(line)
             except FileNotFoundError:
                 self._log(f"run script not found: {frun}", "⚠")
-        script_lines.append(
-            f"sbatch --parsable {Path(self.path, Path(self.job).name)}"
-        )
+        script_lines.append(f"sbatch --parsable {Path(self.path, Path(self.job).name)}")
         full_script = "exec > pre_run_output.txt 2>&1\n" + "\n".join(script_lines)
 
         try:
