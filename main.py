@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import sys
 import time
 from pathlib import Path
@@ -15,11 +16,15 @@ from src.states import State
 def main():
     load_dotenv()
 
-    if "--clean" in sys.argv:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--clean", action="store_true", help="Remove cache file and exit")
+    parser.add_argument("config", nargs="?", default="tasks.wes", help="Path to config file")
+    args = parser.parse_args()
+
+    if args.clean:
         if CACHE_FILE.exists():
             CACHE_FILE.unlink()
             print("Cache file removed.")
-        return
 
     cache = JobCache()
 
@@ -35,9 +40,8 @@ def main():
         else:
             cache.remove(name)
 
-    config_file = sys.argv[1] if len(sys.argv) > 1 else "tasks.wes"
     wes = WESParser()
-    new_tasks = wes.parse(config_file)
+    new_tasks = wes.parse(args.config)
 
     seen = set(cached_tasks)
     tasks = list(cached_tasks.values())
