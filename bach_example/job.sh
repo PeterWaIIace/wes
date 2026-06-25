@@ -20,4 +20,4 @@ module load uv
 cd swarm-gym
 uv sync --active
 set -x
-uv run experiments/fly_to_point.py --steps 1000000
+uv run experiments/fly_to_point.py --steps 1000000 --lr 0.01
