@@ -43,14 +43,14 @@ GIT_PASSWORD=your_github_token_or_password
 
 ## Usage
 
-Run with default config file (`tasks.wes`):
+Run with a `.wes` config file:
 ```bash
-python src/main.py
+wes task.wes
 ```
 
-Or specify a custom config file:
+Or via make:
 ```bash
-python src/main.py path/to/config.wes
+make run
 ```
 
 ## Formatting and Linting
@@ -88,4 +88,4 @@ sequence:
 
 ## Example
 
-See `tasks.wes` for a working example with common use cases.
+See `task.wes` for a working example with common use cases.

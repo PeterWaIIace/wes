@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import re
 import subprocess
 import sys
@@ -10,11 +12,11 @@ SEP = "─"
 _ANSI = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x1b]*\x1b\\")
 
 
-def _strip_ansi(text):
+def _strip_ansi(text: str) -> str:
     return _ANSI.sub("", text)
 
 
-def _sep(label=""):
+def _sep(label: str = "") -> str:
     w = get_terminal_size().columns
     if label:
         left = f" {label} "
@@ -29,30 +31,30 @@ class Task:
         name: str,
         git_url: str,
         path: str,
-        run: list[str] = None,
+        run: list[str] | None = None,
         post: str = "",
         ssh_config: str = "",
-        job: str = None,
+        job: str | None = None,
         branch: str = "",
         cleanup: bool = False,
-        artifacts: list[str] = None,
-        active_jobs: list[str] = None,
+        artifacts: list[str] | None = None,
+        active_jobs: list[str] | None = None,
         state: State = State.PENDING,
-    ):
+    ) -> None:
         self.name = name
         self.ssh_config = ssh_config
         self.git_url = git_url
         self.branch = branch
         self.path = path
         self.job = job
-        self.run = run
+        self.run = run if run is not None else []
         self.post = post
         self.cleanup_git = cleanup
         self.status = state
-        self.jobs_ids = active_jobs if active_jobs is not None else []
-        self.artifacts = artifacts if artifacts is not None else []
+        self.jobs_ids: list[str] = active_jobs if active_jobs is not None else []
+        self.artifacts: list[str] = artifacts if artifacts is not None else []
 
-    def execute(self):
+    def execute(self) -> State:
         if self.status == State.PENDING:
             self.__scp_to(self.job)
             self.status = self.execute_remote_job()
@@ -62,7 +64,7 @@ class Task:
             self.__check_stdout()
             self.__sync_artifacts()
             self.status = self.__health_check()
-        if self.status in [State.COMPLETED, State.FAILED]:
+        if self.status in (State.COMPLETED, State.FAILED):
             self.jobs_ids = []
             self.__execute_post_script()
             self.__sync_artifacts()
@@ -70,13 +72,13 @@ class Task:
                 self.__cleanup_repository()
         return self.status
 
-    def execute_remote_job(self):
+    def execute_remote_job(self) -> State:
         return self.__execute_job()
 
-    def _log(self, msg, kind="•"):
+    def _log(self, msg: str, kind: str = "•") -> None:
         print(f"  {kind} {msg}")
 
-    def __cleanup_repository(self):
+    def __cleanup_repository(self) -> None:
         repo_name = self.git_url.split("/")[-1].replace(".git", "")
         subprocess.run(
             ["ssh", self.ssh_config, "rm", "-rf", repo_name],
@@ -85,7 +87,7 @@ class Task:
             check=True,
         )
 
-    def __clone_repository(self):
+    def __clone_repository(self) -> None:
         git_name = self.git_url.split("/")[-1].replace(".git", "")
         if self.branch:
             update_cmd = (
@@ -103,7 +105,7 @@ class Task:
             check=True,
         )
 
-    def __scp_to(self, file, r=False):
+    def __scp_to(self, file: str | None, r: bool = False) -> None:
         if not file:
             self._log("no file specified for SCP", "⚠")
             return
@@ -114,15 +116,16 @@ class Task:
         if result.stdout:
             print(result.stdout, end="")
 
-    def __sync_artifacts(self):
+    def __sync_artifacts(self) -> None:
         for artifact in self.artifacts:
-            path = artifact.split("/")[0]
-            tfile = "/".join(artifact.split("/")[1:])
+            parts = artifact.split("/")
+            path = parts[0]
+            tfile = "/".join(parts[1:])
             dest = Path("results") / self.name / path
             dest.mkdir(parents=True, exist_ok=True)
             self.__scp_from(path, tfile + "/.", str(dest), r=True)
 
-    def __scp_from(self, path, tfile, cfile, r=False):
+    def __scp_from(self, path: str, tfile: str, cfile: str, r: bool = False) -> None:
         if not tfile or not cfile:
             print("No file specified for SCP", file=sys.stderr)
             return
@@ -143,7 +146,7 @@ class Task:
                 file=sys.stderr,
             )
 
-    def __execute_post_script(self):
+    def __execute_post_script(self) -> None:
         if not self.post:
             return
         post_script = Path(self.post).read_text(encoding="utf-8")
@@ -157,11 +160,11 @@ class Task:
             check=True,
         )
 
-    def __execute_job(self):
+    def __execute_job(self) -> State:
         self._log("cloning repository", "▶")
         self.__clone_repository()
         self._log("submitting job via sbatch", "▶")
-        script_lines = []
+        script_lines: list[str] = []
         for frun in self.run:
             try:
                 with open(frun, encoding="utf-8") as f:
@@ -172,6 +175,9 @@ class Task:
                         script_lines.append(line)
             except FileNotFoundError:
                 self._log(f"run script not found: {frun}", "⚠")
+        if self.job is None:
+            self._log("no job script specified", "✗")
+            return State.FAILED
         script_lines.append(f"sbatch --parsable {Path(self.path, Path(self.job).name)}")
         full_script = "exec > pre_run_output.txt 2>&1\n" + "\n".join(script_lines)
 
@@ -209,7 +215,7 @@ class Task:
                 pass
         return False
 
-    def __health_check(self):
+    def __health_check(self) -> State:
         for job_id in self.jobs_ids:
             try:
                 result = subprocess.run(
@@ -229,13 +235,13 @@ class Task:
                 return State.COMPLETED
         return State.RUNNING
 
-    def __fetch_output(self, remote_file):
+    def __fetch_output(self, remote_file: str) -> None:
         local_dir = Path("results") / self.name
         local_dir.mkdir(parents=True, exist_ok=True)
         local_path = local_dir / remote_file
         self.__scp_from("", remote_file, str(local_path), r=True)
 
-    def __check_pre_run(self):
+    def __check_pre_run(self) -> None:
         self.__fetch_output("pre_run_output.txt")
         result = subprocess.run(
             ["ssh", self.ssh_config, "cat pre_run_output.txt"],
@@ -249,7 +255,7 @@ class Task:
             print(_strip_ansi(raw))
             print(f"{_sep()}")
 
-    def __check_stdout(self):
+    def __check_stdout(self) -> None:
         self.__fetch_output("job_output.txt")
         result = subprocess.run(
             ["ssh", self.ssh_config, "cat job_output.txt"],
@@ -263,7 +269,7 @@ class Task:
             print(_strip_ansi(raw))
             print(f"{_sep()}")
 
-    def __check_stderr(self):
+    def __check_stderr(self) -> None:
         self.__fetch_output("job_error.txt")
         result = subprocess.run(
             ["ssh", self.ssh_config, "cat job_error.txt"],

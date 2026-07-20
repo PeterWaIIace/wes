@@ -1,51 +1,108 @@
+from __future__ import annotations
+
+from pathlib import Path
+
 import yaml
 
 from .tasks import Task
 
 
+class ConfigError(Exception):
+    """Raised when a .wes config file is invalid."""
+
+
+REQUIRED_FIELDS = {"git_url", "job", "ssh"}
+VALID_FIELDS = {
+    "git_url",
+    "branch",
+    "path",
+    "ssh",
+    "job",
+    "run",
+    "post",
+    "artifacts",
+    "cleanup",
+}
+
+
 class WESParser:
-    def parse(self, config_file: str) -> list[Task]:
-        with open(config_file, encoding="utf-8") as f:
+    def parse(self, config_file: str | Path) -> list[Task]:
+        path = Path(config_file)
+        if not path.exists():
+            raise ConfigError(f"Config file not found: {path}")
+        if not path.suffix == ".wes":
+            raise ConfigError(f"Config file must have .wes extension: {path}")
+
+        with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
-        sequence = data.get("sequence", None)
+
+        if not isinstance(data, dict):
+            raise ConfigError("Config file must be a YAML mapping")
+
+        sequence = data.get("sequence")
         if sequence is None:
-            return []
+            raise ConfigError("Config file must contain a 'sequence' key")
+
+        tasks_data: list[dict] = []
         if isinstance(sequence, list):
-            tasks_data = []
             for item in sequence:
+                if not isinstance(item, dict) or len(item) != 1:
+                    raise ConfigError(
+                        f"Each sequence item must be a single-key mapping, got: {item!r}"
+                    )
                 for name, task_data in item.items():
+                    if not isinstance(task_data, dict):
+                        raise ConfigError(f"Task '{name}' config must be a mapping")
                     task_data["name"] = name
                     tasks_data.append(task_data)
         elif isinstance(sequence, dict):
-            tasks_data = []
             for name, task_data in sequence.items():
+                if not isinstance(task_data, dict):
+                    raise ConfigError(f"Task '{name}' config must be a mapping")
                 task_data["name"] = name
                 tasks_data.append(task_data)
         else:
-            return []
-        return [self.process_task(t) for t in tasks_data]
+            raise ConfigError("'sequence' must be a list or mapping of tasks")
 
-    def process_task(self, task_data: dict) -> Task:
+        return [self._process_task(t) for t in tasks_data]
+
+    def _process_task(self, task_data: dict) -> Task:
         name = task_data.get("name", "Unnamed Task")
-        git_url = task_data.get("git_url")
-        branch = task_data.get("branch", "")
-        path = task_data.get("path", ".")
-        ssh_config = task_data.get("ssh", "")
-        job = task_data.get("job", "")
-        run = task_data.get("run", [])
-        post = task_data.get("post", "")
-        artifacts = task_data.get("artifacts", [])
-        cleanup = task_data.get("cleanup", False)
+        _validate_task(name, task_data)
 
         return Task(
             name=name,
-            git_url=git_url,
-            branch=branch,
-            path=path,
-            ssh_config=ssh_config,
-            cleanup=cleanup,
-            run=run,
-            job=job,
-            post=post,
-            artifacts=artifacts,
+            git_url=task_data["git_url"],
+            branch=task_data.get("branch", ""),
+            path=task_data.get("path", "."),
+            ssh_config=task_data["ssh"],
+            cleanup=task_data.get("cleanup", False),
+            run=task_data.get("run", []),
+            job=task_data["job"],
+            post=task_data.get("post", ""),
+            artifacts=task_data.get("artifacts", []),
         )
+
+
+def _validate_task(name: str, data: dict) -> None:
+    unknown = set(data.keys()) - VALID_FIELDS - {"name"}
+    if unknown:
+        raise ConfigError(f"Task '{name}' has unknown fields: {', '.join(sorted(unknown))}")
+
+    missing = REQUIRED_FIELDS - set(data.keys())
+    if missing:
+        raise ConfigError(f"Task '{name}' is missing required fields: {', '.join(sorted(missing))}")
+
+    if not isinstance(data["git_url"], str) or not data["git_url"].strip():
+        raise ConfigError(f"Task '{name}': 'git_url' must be a non-empty string")
+
+    if not isinstance(data["ssh"], str) or not data["ssh"].strip():
+        raise ConfigError(f"Task '{name}': 'ssh' must be a non-empty string")
+
+    if not isinstance(data["job"], str) or not data["job"].strip():
+        raise ConfigError(f"Task '{name}': 'job' must be a non-empty string")
+
+    for field in ("run", "artifacts"):
+        val = data.get(field)
+        if val is not None and not isinstance(val, list):
+            raise ConfigError(f"Task '{name}': '{field}' must be a list")

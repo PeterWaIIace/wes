@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+import shutil
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -5,33 +9,38 @@ import yaml
 from .states import State
 from .tasks import Task
 
-CACHE_FILE = Path("cache.yml")
+_CACHE_FILENAME = "cache.yml"
 
 
 class JobCache:
-    def __init__(self):
-        self._data = self._load()
+    def __init__(self) -> None:
+        self._tmpdir = Path(tempfile.mkdtemp(prefix="wes_"))
+        self._cache_file = self._tmpdir / _CACHE_FILENAME
+        self._data: dict = self._load()
 
     def _load(self) -> dict:
-        if CACHE_FILE.exists():
-            with open(CACHE_FILE, encoding="utf-8") as f:
+        if self._cache_file.exists():
+            with open(self._cache_file, encoding="utf-8") as f:
                 return yaml.safe_load(f) or {}
         return {}
 
-    def _save(self):
-        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+    def _save(self) -> None:
+        with open(self._cache_file, "w", encoding="utf-8") as f:
             yaml.dump(self._data, f, default_flow_style=False)
 
-    def get_all(self) -> dict:
+    def get_all(self) -> dict[str, dict]:
         return self._data.get("tasks", {})
 
-    def set(self, name: str, data: dict):
+    def set(self, name: str, data: dict) -> None:
         self._data.setdefault("tasks", {})[name] = data
         self._save()
 
-    def remove(self, name: str):
+    def remove(self, name: str) -> None:
         self._data.get("tasks", {}).pop(name, None)
         self._save()
+
+    def close(self) -> None:
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     @staticmethod
     def task_to_cache_data(task: Task) -> dict:

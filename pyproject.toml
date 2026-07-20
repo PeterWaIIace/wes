@@ -9,10 +9,17 @@ dependencies = [
     "PyYAML>=6.0.2",
 ]
 
+[project.scripts]
+wes = "src.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "ruff>=0.5.7",
+    "pytest>=8.0.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
