@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}wes - {{ task.name }}{% endblock %}
+
+{% block content %}
+<div class="task-detail">
+    <div class="header-row">
+        <h1>{{ task.name }}</h1>
+        <span class="badge badge-{{ task.status|lower }}">{{ task.status }}</span>
+    </div>
+
+    <div class="info-grid">
+        <div><strong>Git:</strong> <span class="mono">{{ task.git_url }}</span></div>
+        <div><strong>Branch:</strong> {{ task.branch or '-' }}</div>
+        <div><strong>SSH:</strong> {{ task.ssh }}</div>
+        <div><strong>Job IDs:</strong> <span class="mono">{{ task.job_ids|join(', ') or '-' }}</span></div>
+    </div>
+
+    <div class="section">
+        <div class="section-header">
+            <h2>Logs</h2>
+            <div class="log-tabs">
+                <button class="tab active" onclick="showTab('stdout')">stdout</button>
+                <button class="tab" onclick="showTab('stderr')">stderr</button>
+                <button class="tab" onclick="showTab('pre_run')">pre-run</button>
+            </div>
+        </div>
+        <div id="log-stdout" class="log-box">{{ logs.stdout or '(empty)' }}</div>
+        <div id="log-stderr" class="log-box hidden">{{ logs.stderr or '(empty)' }}</div>
+        <div id="log-pre_run" class="log-box hidden">{{ logs.pre_run or '(empty)' }}</div>
+    </div>
+
+    {% if progress.columns %}
+    <div class="section">
+        <h2>Training Progress</h2>
+        <div class="chart-container">
+            <canvas id="progress-chart"></canvas>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="section">
+        <div class="section-header">
+            <h2>Artifacts</h2>
+            <button class="btn btn-sm" onclick="refreshArtifacts()">Refresh from remote</button>
+        </div>
+
+        {% set videos = artifacts|selectattr('kind', 'equalto', 'video')|list %}
+        {% set models = artifacts|selectattr('kind', 'equalto', 'model')|list %}
+        {% set csvs = artifacts|selectattr('kind', 'equalto', 'csv')|list %}
+        {% set images = artifacts|selectattr('kind', 'equalto', 'image')|list %}
+
+        {% if videos %}
+        <h3>Videos ({{ videos|length }})</h3>
+        <div class="video-grid">
+            {% for v in videos|reverse %}
+            <div class="video-item">
+                <video controls preload="metadata">
+                    <source src="/api/tasks/{{ task.name }}/artifacts/{{ v.path }}" type="video/mp4">
+                </video>
+                <div class="video-label">{{ v.name }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if models %}
+        <h3>Models ({{ models|length }})</h3>
+        <div class="model-list">
+            {% for m in models|reverse %}
+            <div class="model-item">
+                <a href="/api/tasks/{{ task.name }}/artifacts/{{ m.path }}" download>{{ m.name }}</a>
+                <span class="size">{{ (m.size / 1024 / 1024)|round(1) }} MB</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if images %}
+        <h3>Images ({{ images|length }})</h3>
+        <div class="image-grid">
+            {% for img in images %}
+            <div class="image-item">
+                <img src="/api/tasks/{{ task.name }}/artifacts/{{ img.path }}" alt="{{ img.name }}" loading="lazy">
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if csvs %}
+        <h3>Data Files ({{ csvs|length }})</h3>
+        <div class="model-list">
+            {% for c in csvs %}
+            <div class="model-item">
+                <a href="/api/tasks/{{ task.name }}/artifacts/{{ c.path }}">{{ c.name }}</a>
+                <span class="size">{{ (c.size / 1024)|round(1) }} KB</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if not artifacts %}
+        <p class="empty">No artifacts found</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function showTab(name) {
+    document.querySelectorAll('.log-box').forEach(el => el.classList.add('hidden'));
+    document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+    document.getElementById('log-' + name).classList.remove('hidden');
+    event.target.classList.add('active');
+}
+
+async function refreshArtifacts() {
+    const resp = await fetch('/api/tasks/{{ task.name }}/refresh', { method: 'POST' });
+    const data = await resp.json();
+    alert(data.message || 'Refreshed');
+    location.reload();
+}
+
+{% if progress.columns %}
+(function() {
+    const columns = {{ progress.columns|tojson }};
+    const rows = {{ progress.rows|tojson }};
+
+    // find key columns
+    const timestepsCol = columns.indexOf('time/total_timesteps');
+    const rewardCol = columns.indexOf('eval/reward');
+    const actorCol = columns.indexOf('train/actor_loss');
+    const criticCol = columns.indexOf('train/critic_loss');
+
+    const labels = [];
+    const rewardData = [];
+    const actorData = [];
+    const criticData = [];
+
+    rows.forEach(row => {
+        const ts = parseFloat(row[timestepsCol]);
+        if (isNaN(ts)) return;
+        labels.push(ts);
+        rewardData.push(parseFloat(row[rewardCol]) || null);
+        actorData.push(parseFloat(row[actorCol]) || null);
+        criticData.push(parseFloat(row[criticCol]) || null);
+    });
+
+    const datasets = [];
+    if (rewardData.some(v => v !== null)) {
+        datasets.push({ label: 'Reward', data: rewardData, borderColor: '#4ade80', tension: 0.3, yAxisID: 'y' });
+    }
+    if (actorData.some(v => v !== null)) {
+        datasets.push({ label: 'Actor Loss', data: actorData, borderColor: '#60a5fa', tension: 0.3, yAxisID: 'y1' });
+    }
+    if (criticData.some(v => v !== null)) {
+        datasets.push({ label: 'Critic Loss', data: criticData, borderColor: '#f472b6', tension: 0.3, yAxisID: 'y1' });
+    }
+
+    if (datasets.length > 0) {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+        script.onload = function() {
+            const ctx = document.getElementById('progress-chart').getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: { labels, datasets },
+                options: {
+                    responsive: true,
+                    interaction: { mode: 'index', intersect: false },
+                    scales: {
+                        x: { title: { display: true, text: 'Timesteps', color: '#94a3b8' }, ticks: { color: '#94a3b8' }, grid: { color: '#334155' } },
+                        y: { position: 'left', title: { display: true, text: 'Reward', color: '#94a3b8' }, ticks: { color: '#94a3b8' }, grid: { color: '#334155' } },
+                        y1: { position: 'right', title: { display: true, text: 'Loss', color: '#94a3b8' }, ticks: { color: '#94a3b8' }, grid: { drawOnChartArea: false } }
+                    },
+                    plugins: { legend: { labels: { color: '#e2e8f0' } } }
+                }
+            });
+        };
+        document.head.appendChild(script);
+    }
+})();
+{% endif %}
+</script>
+{% endblock %}

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}wes - Submit{% endblock %}
+
+{% block content %}
+<div class="submit-page">
+    <h1>Submit Job</h1>
+    <form id="submit-form" onsubmit="submitConfig(event)">
+        <label for="config">.wes Configuration (YAML)</label>
+        <textarea id="config" name="config" rows="20" spellcheck="false">sequence:
+    my-task:
+        git_url: ssh://git@your-repo.git
+        branch: main
+        ssh: your-ssh-host
+        run:
+            - path/to/run.sh
+        job:
+            path/to/job.sh
+        artifacts:
+            - results/folder
+        post:
+            path/to/post.sh
+        cleanup: True</textarea>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Run</button>
+        </div>
+    </form>
+    <div id="result" class="hidden"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function submitConfig(e) {
+    e.preventDefault();
+    const config = document.getElementById('config').value;
+    const result = document.getElementById('result');
+    result.className = '';
+    result.textContent = 'Submitting...';
+
+    try {
+        const resp = await fetch('/api/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ config: config })
+        });
+        const text = await resp.text();
+        let data;
+        try { data = JSON.parse(text); } catch(e) {
+            result.textContent = 'Error: server returned non-JSON response';
+            return;
+        }
+        if (resp.ok) {
+            let lines = [];
+            if (data.tasks && data.tasks.length) {
+                lines.push('Started: ' + data.tasks.join(', '));
+            }
+            if (data.errors && data.errors.length) {
+                lines.push('Errors:');
+                data.errors.forEach(err => lines.push('  ' + err));
+            }
+            if (!lines.length) lines.push('No tasks started');
+            result.textContent = lines.join('\n');
+        } else {
+            result.textContent = 'Error: ' + (data.detail || 'Unknown error');
+        }
+    } catch (err) {
+        result.textContent = 'Error: ' + err.message;
+    }
+}
+</script>
+{% endblock %}

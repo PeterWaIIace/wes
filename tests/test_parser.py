@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.parser import ConfigError, WESParser
+from wes.parser import ConfigError, WESParser
 
 
 class TestWESParserValid:

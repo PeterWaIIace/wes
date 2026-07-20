@@ -1,11 +1,11 @@
 sequence:
     fly-to-point:
         git_url: ssh://git@ben.ii.pw.edu.pl:9000/pwalas/swarm-gym.git
-        branch: experiment-fly-to-point
+        branch: Piotr/verifying-control-algorihtms
         ssh: hpc
         run:
             - bach_example/run.sh
-        job:
+        job: 
             bach_example/job.sh
         artifacts: # folder to sync with
             - swarm-gym/results

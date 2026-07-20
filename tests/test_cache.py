@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import yaml
 
-from src.cache import JobCache
-from src.states import State
-from src.tasks import Task
+from wes.cache import JobCache
+from wes.states import State
+from wes.tasks import Task
 
 
 def test_cache_empty_on_start() -> None:

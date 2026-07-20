@@ -133,18 +133,12 @@ class Task:
         cmd = ["rsync", "-e", "ssh", src, cfile]
         if r:
             cmd = ["rsync", "-r", "--no-inc-recursive", "-e", "ssh", src, cfile]
-        result = subprocess.run(
+        subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             check=False,
         )
-        if result.returncode != 0:
-            print(
-                "Warning: rsync from remote failed"
-                f" (return code {result.returncode}): {result.stderr.strip()}",
-                file=sys.stderr,
-            )
 
     def __execute_post_script(self) -> None:
         if not self.post:
@@ -247,7 +241,6 @@ class Task:
             ["ssh", self.ssh_config, "cat pre_run_output.txt"],
             text=True,
             capture_output=True,
-            check=True,
         )
         raw = result.stdout.strip()
         if raw:
@@ -261,7 +254,6 @@ class Task:
             ["ssh", self.ssh_config, "cat job_output.txt"],
             text=True,
             capture_output=True,
-            check=True,
         )
         raw = result.stdout.strip()
         if raw:
@@ -275,7 +267,6 @@ class Task:
             ["ssh", self.ssh_config, "cat job_error.txt"],
             text=True,
             capture_output=True,
-            check=True,
         )
         raw = result.stdout.strip()
         if raw:

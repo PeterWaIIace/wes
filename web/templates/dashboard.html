@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}wes - Dashboard{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <div class="section">
+        <div class="section-header">
+            <h2>Tasks</h2>
+            <button class="btn" onclick="location.reload()">Refresh</button>
+        </div>
+
+        {% if error %}
+        <div class="error">{{ error }}</div>
+        {% endif %}
+
+        <div class="tile-grid">
+            {% for task in tasks %}
+            <a href="/tasks/{{ task.name }}" class="task-tile">
+                <div class="task-tile-header">
+                    <span class="task-tile-name">{{ task.name }}</span>
+                    <span class="badge badge-{{ task.status|lower }}">{{ task.status }}</span>
+                </div>
+                <div class="task-tile-body">
+                    {% if task.git_url %}
+                    <div class="task-tile-row">
+                        <span class="label">git</span>
+                        <span class="mono">{{ task.git_url.split('/')[-1].replace('.git', '') }}</span>
+                    </div>
+                    {% endif %}
+                    {% if task.branch %}
+                    <div class="task-tile-row">
+                        <span class="label">branch</span>
+                        <span>{{ task.branch }}</span>
+                    </div>
+                    {% endif %}
+                    {% if task.ssh %}
+                    <div class="task-tile-row">
+                        <span class="label">ssh</span>
+                        <span>{{ task.ssh }}</span>
+                    </div>
+                    {% endif %}
+                    {% if task.job_ids %}
+                    <div class="task-tile-row">
+                        <span class="label">jobs</span>
+                        <span class="mono">{{ task.job_ids|join(', ') }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="task-tile-footer">
+                    <button class="btn btn-sm" onclick="event.preventDefault(); deleteTask('{{ task.name }}')">Delete</button>
+                </div>
+            </a>
+            {% endfor %}
+            {% if not tasks %}
+            <div class="empty">No tasks found</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-header">
+            <h2>Cluster</h2>
+            <div class="cluster-controls">
+                <input type="text" id="ssh-input" class="input" placeholder="SSH host (e.g. hpc)"
+                       value="{{ ssh_hosts[0] if ssh_hosts else '' }}">
+                <button class="btn btn-primary" onclick="loadNodes()">Query</button>
+            </div>
+        </div>
+        <div id="node-status" class="tile-grid">
+            <div class="empty">Enter an SSH host and click Query</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function deleteTask(name) {
+    if (!confirm('Delete "' + name + '"?')) return;
+    await fetch('/api/tasks/' + name, { method: 'DELETE' });
+    location.reload();
+}
+
+async function loadNodes() {
+    const ssh = document.getElementById('ssh-input').value.trim();
+    if (!ssh) return;
+    const container = document.getElementById('node-status');
+    container.innerHTML = '<div class="empty">Querying...</div>';
+
+    try {
+        const resp = await fetch('/api/nodes?ssh=' + encodeURIComponent(ssh));
+        const data = await resp.json();
+        if (data.error) {
+            container.innerHTML = '<div class="error">' + data.error + '</div>';
+            return;
+        }
+        if (!data.nodes || !data.nodes.length) {
+            container.innerHTML = '<div class="empty">No nodes found</div>';
+            return;
+        }
+
+        let html = '';
+        data.nodes.forEach(n => {
+            const stateClass = n.state === 'idle' ? 'node-idle' :
+                               n.state === 'alloc' || n.state === 'allocated' ? 'node-alloc' :
+                               n.state === 'mix' || n.state === 'mixed' ? 'node-mix' :
+                               'node-other';
+            html += '<div class="node-tile ' + stateClass + '">';
+            html += '<div class="node-tile-name">' + n.name + '</div>';
+            html += '<div class="node-tile-state">' + n.state + '</div>';
+            html += '<div class="node-tile-details">';
+            html += '<span>CPUs ' + n.cpus + '</span>';
+            html += '<span>GPU ' + n.gpus + '</span>';
+            html += '<span>' + n.memory + '</span>';
+            html += '</div>';
+            if (n.partition) {
+                html += '<div class="node-tile-partition">' + n.partition + '</div>';
+            }
+            html += '</div>';
+        });
+        container.innerHTML = html;
+    } catch (err) {
+        container.innerHTML = '<div class="error">Failed: ' + err.message + '</div>';
+    }
+}
+
+document.getElementById('ssh-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') loadNodes();
+});
+
+{% if ssh_hosts %}
+loadNodes();
+{% endif %}
+</script>
+{% endblock %}

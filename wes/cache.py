@@ -10,12 +10,17 @@ from .states import State
 from .tasks import Task
 
 _CACHE_FILENAME = "cache.yml"
+_PERSISTENT_CACHE = ".wes-cache.yml"
 
 
 class JobCache:
-    def __init__(self) -> None:
-        self._tmpdir = Path(tempfile.mkdtemp(prefix="wes_"))
-        self._cache_file = self._tmpdir / _CACHE_FILENAME
+    def __init__(self, persistent: bool = False) -> None:
+        self._persistent = persistent
+        if persistent:
+            self._cache_file = Path(_PERSISTENT_CACHE)
+        else:
+            self._tmpdir = Path(tempfile.mkdtemp(prefix="wes_"))
+            self._cache_file = self._tmpdir / _CACHE_FILENAME
         self._data: dict = self._load()
 
     def _load(self) -> dict:
@@ -40,7 +45,8 @@ class JobCache:
         self._save()
 
     def close(self) -> None:
-        shutil.rmtree(self._tmpdir, ignore_errors=True)
+        if not self._persistent:
+            shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     @staticmethod
     def task_to_cache_data(task: Task) -> dict:

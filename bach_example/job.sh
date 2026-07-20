@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=test_job        # nazwa zadania
+#SBATCH --job-name=experiment_job        # nazwa zadania
 #SBATCH --output=job_output.txt    # plik wyjściowy (stdout)
 #SBATCH --error=job_error.txt      # plik błędów (stderr)
 #SBATCH --partition=gpu            # nazwa partycji

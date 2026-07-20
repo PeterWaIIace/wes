@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from src.states import State
-from src.tasks import Task, _strip_ansi
+from wes.states import State
+from wes.tasks import Task, _strip_ansi
 
 
 def test_task_defaults() -> None:

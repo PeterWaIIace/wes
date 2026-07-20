@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.states import State
+from wes.states import State
 
 
 def test_state_values() -> None:
