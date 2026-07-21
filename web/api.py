@@ -276,10 +276,10 @@ def get_nodes(ssh: str = "") -> ClusterData:
     if not ssh:
         return ClusterData(ssh="", error="No SSH host specified and none found in cached tasks")
 
-    from wes.cluster import get_nodes as fetch_nodes
+    from wes import WES
 
     try:
-        nodes = fetch_nodes(ssh)
+        nodes = WES(ssh).get_nodes()
     except Exception as e:
         log.error("Failed to fetch nodes from '%s': %s", ssh, e)
         return ClusterData(ssh=ssh, error=str(e))
@@ -316,10 +316,10 @@ def get_jobs(ssh: str = "") -> JobsData:
     if not ssh:
         return JobsData(ssh="", error="No SSH host specified and none found in cached tasks")
 
-    from wes.cluster import get_jobs as fetch_jobs
+    from wes import WES
 
     try:
-        jobs = fetch_jobs(ssh)
+        jobs = WES(ssh).get_jobs()
     except Exception as e:
         log.error("Failed to fetch jobs from '%s': %s", ssh, e)
         return JobsData(ssh=ssh, error=str(e))
@@ -360,14 +360,13 @@ def get_cluster(ssh: str = "") -> dict:
     if not ssh:
         return {"ssh": "", "error": "No SSH host specified"}
 
-    from wes.cluster import get_capacity as fetch_capacity
-    from wes.cluster import get_jobs as fetch_jobs
-    from wes.cluster import get_nodes as fetch_nodes
+    from wes import WES
 
     try:
-        nodes = fetch_nodes(ssh)
-        jobs = fetch_jobs(ssh)
-        capacity = fetch_capacity(ssh)
+        wes = WES(ssh)
+        nodes = wes.get_nodes()
+        jobs = wes.get_jobs()
+        capacity = wes.get_capacity()
     except Exception as e:
         log.error("Failed to fetch cluster data from '%s': %s", ssh, e)
         return {"ssh": ssh, "error": str(e)}
@@ -422,7 +421,7 @@ def get_cluster(ssh: str = "") -> dict:
 @router.post("/slurm")
 def generate_slurm(spec: SlurmJobSpec) -> SlurmJobResponse:
     """Generate an sbatch script and CLI args from a SlurmJobSpec."""
-    from wes.cluster import SlurmJob
+    from wes import SlurmJob
 
     job = SlurmJob(
         name=spec.name,

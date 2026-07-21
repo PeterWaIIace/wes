@@ -1,7 +1,7 @@
 from __future__ import annotations
-import re
-import subprocess
+
 from dataclasses import dataclass, field
+
 
 @dataclass
 class JobInfo:
@@ -15,6 +15,7 @@ class JobInfo:
     reason: str
     cpus: str
     memory: str
+
 
 @dataclass
 class SlurmJob:
@@ -168,4 +169,3 @@ class SlurmJob:
             command=str(data.get("command", "")),
             script_path=str(data.get("script_path", "")),
         )
-

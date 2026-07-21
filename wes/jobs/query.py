@@ -1,15 +1,12 @@
 from __future__ import annotations
-import re
-import subprocess
+
+from wes.jobs.job import JobInfo
 from wes.remote.runner import _ssh_run
-from dataclasses import dataclass, field
-from wes.clusters.node import JobInfo, NodeInfo, NodeCapacity
+
 
 class JobsQuery:
-
     def __init__(self, ssh_config: str):
         self.ssh_config = ssh_config
-        pass 
 
     def get(self) -> list[JobInfo]:
         fmt = "%i|%u|%j|%T|%M|%N|%P|%R|%C|%m"

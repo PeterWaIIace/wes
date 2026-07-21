@@ -1,10 +1,8 @@
+from __future__ import annotations
 
 import re
-import subprocess
-from dataclasses import dataclass, field
-from wes.remote.runner import _ssh_run
-from wes.jobs.query import JobsQuery
-from wes.clusters.node import JobInfo, NodeInfo, NodeCapacity
+from dataclasses import dataclass
+
 
 @dataclass
 class NodeInfo:
@@ -16,11 +14,10 @@ class NodeInfo:
     memory: str
     reason: str = ""
 
-    def __init__(self, line):
+    def __init__(self, line: str):
         self.__parse(line)
 
     def __parse(self, line: str) -> None:
-        """Parse a sinfo line into NodeInfo fields."""
         parts = line.split("|")
         if len(parts) < 6:
             raise ValueError(f"Invalid sinfo line: {line}")
@@ -52,14 +49,21 @@ class NodeCapacity:
     def __parse(self, line: str) -> None:
         line = line.strip()
         if not line or not line.startswith("NodeName="):
+            self.name = ""
+            self.cpu_total = 0
+            self.cpu_alloc = 0
+            self.cpu_free = 0
+            self.mem_total_mb = 0
+            self.mem_alloc_mb = 0
+            self.mem_free_mb = 0
+            self.gpu_total = 0
+            self.gpu_alloc = 0
+            self.gpu_free = 0
             return
 
-        name = self._parse_scontrol_value(line, "NodeName")
-        if not name:
-            return
+        self.name = self._parse_scontrol_value(line, "NodeName")
 
         cpu_total = self._parse_int(self._parse_scontrol_value(line, "Cpus"), 0)
-        # try CPUSockets * CoresPerSocket as fallback
         if cpu_total == 0:
             sockets = self._parse_int(self._parse_scontrol_value(line, "Sockets"), 0)
             cores = self._parse_int(self._parse_scontrol_value(line, "CoresPerSocket"), 0)
@@ -78,37 +82,42 @@ class NodeCapacity:
         gpu_alloc = self._parse_gres_alloc(gres) if gres else 0
         gpu_free = max(gpu_total - gpu_alloc, 0)
 
+        self.cpu_total = cpu_total
+        self.cpu_alloc = cpu_alloc
+        self.cpu_free = cpu_free
+        self.mem_total_mb = mem_total
+        self.mem_alloc_mb = mem_alloc
+        self.mem_free_mb = mem_free
+        self.gpu_total = gpu_total
+        self.gpu_alloc = gpu_alloc
+        self.gpu_free = gpu_free
+
     def _parse_scontrol_value(self, line: str, key: str) -> str:
-        """Extract a value from a scontrol one-line output like 'Key=Value'."""
         m = re.search(rf"\b{key}=(\S+)", line)
         return m.group(1) if m else ""
 
     def _parse_gpu_count(self, gres: str) -> str:
-        """Parse GPU count from GRES string like 'gpu:rtx_2070_super:1' or '(null)'."""
         if not gres or gres == "(null)":
             return "-"
         if "gpu" not in gres.lower():
             return "-"
         parts = gres.split(":")
-        # last numeric part is the count
         for p in reversed(parts):
+            cleaned = p.split("(")[0]
             try:
-                return str(int(p))
+                return str(int(cleaned))
             except ValueError:
                 continue
         return gres
 
     def _parse_gres_alloc(self, gres: str) -> int:
-        """Parse allocated GPUs from GRES like 'gpu:rtx_2070_super:2(IDX:0-1)'."""
         if not gres or gres == "(null)":
             return 0
-        # match gpu:type:N or gpu:N where N is total
         m = re.search(r"gpu:\w+:(\d+)", gres)
         if not m:
             m = re.search(r"gpu:(\d+)", gres)
         if not m:
             return 0
-        # allocated = total - count of free indices
         idx_match = re.search(r"IDX:([\d,-]+)", gres)
         if idx_match:
             allocated = 0
@@ -119,7 +128,6 @@ class NodeCapacity:
                 else:
                     allocated += 1
             return allocated
-        # no IDX info, use node state to estimate
         return 0
 
     def _parse_int(self, s: str, default: int) -> int:
@@ -128,15 +136,14 @@ class NodeCapacity:
         except (ValueError, TypeError):
             return default
 
+
 class Node:
-
     def __init__(self, info: NodeInfo, capacity: NodeCapacity):
-        self.capacity : NodeCapacity = info
-        self.info : NodeInfo = capacity
-
+        self.info = info
+        self.capacity = capacity
 
     def get_info(self) -> NodeInfo:
         return self.info
 
-    def get_capacity(self, ssh_config: str) -> NodeCapacity:
+    def get_capacity(self) -> NodeCapacity:
         return self.capacity

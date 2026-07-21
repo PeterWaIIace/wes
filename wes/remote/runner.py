@@ -1,3 +1,6 @@
+import subprocess
+
+
 def _ssh_run(ssh_config: str, cmd: str) -> list[str]:
     """Run a command via SSH and return non-header lines."""
     result = subprocess.run(
@@ -13,5 +16,3 @@ def _ssh_run(ssh_config: str, cmd: str) -> list[str]:
         for line in result.stdout.strip().splitlines()
         if line.strip() and not line.startswith("JOBID")
     ]
-
-

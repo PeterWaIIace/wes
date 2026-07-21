@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import re
-import subprocess
-from dataclasses import dataclass, field
-from wes.nodes.node import Node
+from wes.clusters.node import Node, NodeCapacity
+from wes.clusters.observer import NodesObserver
 from wes.jobs.job import JobInfo
 from wes.jobs.query import JobsQuery
-from wes.clusters.observer import NodesObserver
 
-class Cluster: 
+
+class Cluster:
 
     def __init__(self, ssh_config: str):
         self.ssh_config = ssh_config
@@ -18,3 +16,6 @@ class Cluster:
 
     def get_nodes(self) -> list[Node]:
         return NodesObserver(self.ssh_config).get_nodes()
+
+    def get_capacity(self) -> list[NodeCapacity]:
+        return [n.capacity for n in self.get_nodes()]
