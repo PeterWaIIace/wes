@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from wes.cluster import Cluster
 from wes.clusters.node import NodeCapacity, NodeInfo
-from wes.jobs.job import JobInfo, SlurmJob
+from wes.jobs.job import JobInfo, SlurmJob as SlurmJob
 
 
 class WES:
