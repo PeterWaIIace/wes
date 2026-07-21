@@ -275,3 +275,68 @@ class TestWESParserValidation:
         parser = WESParser()
         with pytest.raises(ConfigError, match="single-key mapping"):
             parser.parse(p)
+
+
+class TestWESParserSlurmFields:
+    def test_parse_slurm_fields(self, wes_file) -> None:
+        content = """
+        sequence:
+            gpu-job:
+                git_url: ssh://git@example.com/repo.git
+                ssh: hpc
+                job: train.sh
+                partition: gpu
+                cpus: 8
+                gpus: 2
+                memory: 32G
+                time: "4:00:00"
+                nodelist: gpu0,gpu1
+        """
+        p = wes_file(content)
+        parser = WESParser()
+        tasks = parser.parse(p)
+        task = tasks[0]
+        assert task.partition == "gpu"
+        assert task.cpus == "8"
+        assert task.gpus == "2"
+        assert task.memory == "32G"
+        assert task.time == "4:00:00"
+        assert task.nodelist == "gpu0,gpu1"
+
+    def test_slurm_fields_default_empty(self, wes_file) -> None:
+        content = """
+        sequence:
+            basic:
+                git_url: ssh://git@example.com/repo.git
+                ssh: hpc
+                job: run.sh
+        """
+        p = wes_file(content)
+        parser = WESParser()
+        tasks = parser.parse(p)
+        task = tasks[0]
+        assert task.partition == ""
+        assert task.cpus == ""
+        assert task.gpus == ""
+        assert task.memory == ""
+        assert task.time == ""
+        assert task.nodelist == ""
+
+    def test_partial_slurm_fields(self, wes_file) -> None:
+        content = """
+        sequence:
+            partial:
+                git_url: ssh://git@example.com/repo.git
+                ssh: hpc
+                job: run.sh
+                memory: 16G
+                time: "2:00:00"
+        """
+        p = wes_file(content)
+        parser = WESParser()
+        tasks = parser.parse(p)
+        task = tasks[0]
+        assert task.memory == "16G"
+        assert task.time == "2:00:00"
+        assert task.cpus == ""
+        assert task.gpus == ""

@@ -12,6 +12,12 @@ class TaskSummary(BaseModel):
     job_ids: list[str]
     job: str | None = None
     artifacts: list[str] = []
+    partition: str = ""
+    cpus: str = ""
+    gpus: str = ""
+    memory: str = ""
+    time: str = ""
+    nodelist: str = ""
 
 
 class LogData(BaseModel):
@@ -115,3 +121,41 @@ class SlurmJobSpec(BaseModel):
 class SlurmJobResponse(BaseModel):
     script: str
     args: list[str]
+
+
+class TaskConfig(BaseModel):
+    name: str
+    git_url: str
+    branch: str = ""
+    ssh: str
+    job: str
+    partition: str = ""
+    cpus: str = ""
+    gpus: str = ""
+    memory: str = ""
+    time: str = ""
+    nodelist: str = ""
+
+
+class SubmitRequest(BaseModel):
+    name: str
+    overrides: dict[str, str] = {}
+
+
+class CreateTaskRequest(BaseModel):
+    name: str
+    git_url: str = ""
+    branch: str = ""
+    ssh: str = ""
+    job: str = ""
+    partition: str = ""
+    cpus: str = ""
+    gpus: str = ""
+    memory: str = ""
+    time: str = ""
+    nodelist: str = ""
+
+
+class SettingsData(BaseModel):
+    ssh_hosts: list[str] = []
+    form_history: dict[str, list[str]] = {}

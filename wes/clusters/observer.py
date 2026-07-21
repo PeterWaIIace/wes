@@ -24,9 +24,12 @@ class NodesObserver:
         return capacities
 
     def get_nodes(self) -> list[Node]:
-        infos = sorted(self.__get_server_nodes_info(), key=lambda c: c.name)
-        capacities = sorted(self.__get_server_nodes_capacity(), key=lambda c: c.name)
+        infos = {info.name: info for info in self.__get_server_nodes_info()}
+        capacities = {cap.name: cap for cap in self.__get_server_nodes_capacity()}
         nodes = []
-        for info, capacity in zip(infos, capacities, strict=True):
-            nodes.append(Node(info, capacity))
+        for name in sorted(set(infos) | set(capacities)):
+            info = infos.get(name)
+            cap = capacities.get(name)
+            if info and cap:
+                nodes.append(Node(info, cap))
         return nodes

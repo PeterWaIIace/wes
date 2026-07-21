@@ -22,6 +22,12 @@ VALID_FIELDS = {
     "post",
     "artifacts",
     "cleanup",
+    "partition",
+    "cpus",
+    "gpus",
+    "memory",
+    "time",
+    "nodelist",
 }
 
 
@@ -81,6 +87,12 @@ class WESParser:
             job=task_data["job"],
             post=task_data.get("post", ""),
             artifacts=task_data.get("artifacts", []),
+            partition=str(task_data.get("partition", "")),
+            cpus=str(task_data.get("cpus", "")),
+            gpus=str(task_data.get("gpus", "")),
+            memory=str(task_data.get("memory", "")),
+            time=str(task_data.get("time", "")),
+            nodelist=str(task_data.get("nodelist", "")),
         )
 
 

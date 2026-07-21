@@ -12,14 +12,18 @@ from fastapi.responses import FileResponse
 from web.models import (
     ArtifactEntry,
     ClusterData,
+    CreateTaskRequest,
     JobInfo,
     JobsData,
     LogData,
     NodeInfo,
     ProgressData,
     RunRequest,
+    SettingsData,
     SlurmJobResponse,
     SlurmJobSpec,
+    SubmitRequest,
+    TaskConfig,
     TaskSummary,
 )
 from wes.cache import JobCache
@@ -61,6 +65,12 @@ def list_tasks() -> list[TaskSummary]:
                     job_ids=data.get("jobs_ids", []),
                     job=data.get("job"),
                     artifacts=data.get("artifacts", []),
+                    partition=data.get("partition", ""),
+                    cpus=data.get("cpus", ""),
+                    gpus=data.get("gpus", ""),
+                    memory=data.get("memory", ""),
+                    time=data.get("time", ""),
+                    nodelist=data.get("nodelist", ""),
                 )
             )
     finally:
@@ -98,6 +108,12 @@ def get_task(name: str) -> TaskSummary:
                 job_ids=data.get("jobs_ids", []),
                 job=data.get("job"),
                 artifacts=data.get("artifacts", []),
+                partition=data.get("partition", ""),
+                cpus=data.get("cpus", ""),
+                gpus=data.get("gpus", ""),
+                memory=data.get("memory", ""),
+                time=data.get("time", ""),
+                nodelist=data.get("nodelist", ""),
             )
     finally:
         cache.close()
@@ -416,6 +432,178 @@ def get_cluster(ssh: str = "") -> dict:
             for j in jobs
         ],
     }
+
+
+@router.get("/config", response_model=list[TaskConfig])
+def get_config() -> list[TaskConfig]:
+    """Parse .wes files in project root and return structured task configs."""
+    from wes.parser import WESParser
+
+    wes_files = sorted(Path(".").glob("*.wes"))
+    if not wes_files:
+        return []
+
+    parser = WESParser()
+    tasks: list[TaskConfig] = []
+    for wes_file in wes_files:
+        try:
+            for task in parser.parse(str(wes_file)):
+                tasks.append(
+                    TaskConfig(
+                        name=task.name,
+                        git_url=task.git_url,
+                        branch=task.branch,
+                        ssh=task.ssh_config,
+                        job=task.job or "",
+                        partition=task.partition,
+                        cpus=task.cpus,
+                        gpus=task.gpus,
+                        memory=task.memory,
+                        time=task.time,
+                        nodelist=task.nodelist,
+                    )
+                )
+        except Exception as e:
+            log.error("Failed to parse %s: %s", wes_file, e)
+    return tasks
+
+
+@router.post("/submit")
+def submit_task(req: SubmitRequest) -> dict:
+    """Submit a task from .wes config with optional resource overrides."""
+    import subprocess
+
+    from wes.parser import WESParser
+    from wes.tasks import Task
+
+    wes_files = sorted(Path(".").glob("*.wes"))
+    if not wes_files:
+        raise HTTPException(status_code=400, detail="No .wes config files found")
+
+    parser = WESParser()
+    target: Task | None = None
+    for wes_file in wes_files:
+        try:
+            for task in parser.parse(str(wes_file)):
+                if task.name == req.name:
+                    target = task
+                    break
+        except Exception as e:
+            log.error("Failed to parse %s: %s", wes_file, e)
+        if target:
+            break
+
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Task '{req.name}' not found in .wes configs")
+
+    for key, val in req.overrides.items():
+        if hasattr(target, key):
+            setattr(target, key, val)
+
+    cache = JobCache(persistent=True)
+    try:
+        if target.name in cache.get_all():
+            return {
+                "status": "skipped",
+                "message": f"Task '{target.name}' already in cache",
+            }
+        try:
+            target.execute()
+        except (subprocess.CalledProcessError, OSError) as e:
+            log.error("Task '%s' failed: %s", target.name, e)
+            raise HTTPException(status_code=500, detail=str(e)) from e
+
+        if target.status == State.RUNNING:
+            cache.set(target.name, JobCache.task_to_cache_data(target))
+    finally:
+        cache.close()
+
+    return {"status": "ok", "task": target.name, "state": target.status.value}
+
+
+@router.post("/tasks")
+def create_task(req: CreateTaskRequest) -> dict:
+    """Create a new task: generate .wes config, parse, and execute."""
+    import subprocess
+
+    import yaml
+
+    from wes.parser import WESParser
+
+    name = req.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Task name is required")
+
+    task_data: dict[str, str] = {}
+    if req.git_url.strip():
+        task_data["git_url"] = req.git_url.strip()
+    if req.branch.strip():
+        task_data["branch"] = req.branch.strip()
+    if req.ssh.strip():
+        task_data["ssh"] = req.ssh.strip()
+    if req.job.strip():
+        task_data["job"] = req.job.strip()
+    if req.partition.strip():
+        task_data["partition"] = req.partition.strip()
+    if req.cpus.strip():
+        task_data["cpus"] = req.cpus.strip()
+    if req.gpus.strip():
+        task_data["gpus"] = req.gpus.strip()
+    if req.memory.strip():
+        task_data["memory"] = req.memory.strip()
+    if req.time.strip():
+        task_data["time"] = req.time.strip()
+    if req.nodelist.strip():
+        task_data["nodelist"] = req.nodelist.strip()
+
+    config = {"sequence": [{name: task_data}]}
+    wes_path = Path(name + ".wes")
+
+    if wes_path.exists():
+        raise HTTPException(
+            status_code=409,
+            detail=f"Config file '{wes_path}' already exists",
+        )
+
+    try:
+        wes_path.write_text(yaml.dump(config, default_flow_style=False), encoding="utf-8")
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Failed to write config: {e}") from e
+
+    has_required = all(task_data.get(f) for f in ("git_url", "ssh", "job"))
+    if not has_required:
+        return {
+            "status": "ok",
+            "task": name,
+            "state": "CREATED",
+            "message": f"Created '{name}.wes' (fill in git_url, ssh, job to run)",
+        }
+
+    parser = WESParser()
+    try:
+        tasks = parser.parse(str(wes_path))
+    except Exception as e:
+        log.error("Failed to parse generated config: %s", e)
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    if not tasks:
+        raise HTTPException(status_code=400, detail="No tasks found in generated config")
+
+    target = tasks[0]
+    cache = JobCache(persistent=True)
+    try:
+        try:
+            target.execute()
+        except (subprocess.CalledProcessError, OSError) as e:
+            log.error("Task '%s' failed: %s", target.name, e)
+            raise HTTPException(status_code=500, detail=str(e)) from e
+
+        if target.status == State.RUNNING:
+            cache.set(target.name, JobCache.task_to_cache_data(target))
+    finally:
+        cache.close()
+
+    return {"status": "ok", "task": target.name, "state": target.status.value}
 
 
 @router.post("/slurm")

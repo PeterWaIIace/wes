@@ -13,3 +13,22 @@ tasks:
     - bach_example/run.sh
     ssh: hpc
     state: FAILED
+  testing_ppo:
+    artifacts: []
+    branch: Piotr/verifying-control-algorihtms
+    cleanup: false
+    cpus: '6'
+    git_url: ssh://git@ben.ii.pw.edu.pl:9000/pwalas/swarm-gym.git
+    gpus: '1'
+    job: bach_example/job.sh
+    jobs_ids:
+    - ''
+    memory: 4G
+    nodelist: flip
+    partition: ''
+    path: .
+    post: ''
+    run: []
+    ssh: hpc
+    state: RUNNING
+    time: 04:00:00

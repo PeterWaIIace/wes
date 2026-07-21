@@ -60,72 +60,141 @@
 <div class="panel">
     <div class="panel-header">
         <h2>Tasks</h2>
-        <a href="/submit" class="btn btn-sm btn-primary">+ New Task</a>
+        <div style="display:flex;gap:0.5rem;align-items:center">
+            <span id="tasks-status" class="cluster-status-text"></span>
+            <button class="btn btn-sm" onclick="loadConfig()">Reload</button>
+        </div>
     </div>
-    <div class="panel-body flush">
-        <table class="jobs-table">
-            <thead>
-                <tr>
-                    <th></th>
-                    <th>Name</th>
-                    <th>Git</th>
-                    <th>Branch</th>
-                    <th>SSH</th>
-                    <th>Jobs</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for task in tasks %}
-                <tr>
-                    <td><span class="dot dot-{{ task.status|lower }}"></span></td>
-                    <td class="job-name-cell"><a href="/tasks/{{ task.name }}" style="color:var(--primary);text-decoration:none;font-weight:500">{{ task.name }}</a></td>
-                    <td class="mono" style="color:var(--text-secondary)">{{ task.git_url.split('/')[-1].replace('.git', '') if task.git_url else '-' }}</td>
-                    <td style="color:var(--text-secondary)">{{ task.branch or '-' }}</td>
-                    <td class="mono" style="color:var(--text-secondary)">{{ task.ssh or '-' }}</td>
-                    <td class="mono" style="color:var(--text-secondary)">{{ task.job_ids|join(', ') or '-' }}</td>
-                    <td>
-                        <button class="btn-ghost" onclick="deleteTask('{{ task.name }}')" title="Delete">&#x2715;</button>
-                    </td>
-                </tr>
-                {% endfor %}
-                {% if not tasks %}
-                <tr><td colspan="7" class="empty">No tasks found</td></tr>
-                {% endif %}
-            </tbody>
-        </table>
+    <div id="tasks-error"></div>
+    <div id="task-tiles" class="task-tiles"></div>
+    <div id="task-empty" class="empty-state" style="display:none">
+        No .wes config files found in project root
     </div>
 </div>
+
+<!-- Inline Config Panel (hidden by default) -->
+<div class="panel hidden" id="config-panel">
+    <div class="panel-header">
+        <h2 id="config-title">New Task</h2>
+        <button class="btn btn-sm" onclick="closeConfig()">&#x2715; Close</button>
+    </div>
+    <div class="config-form">
+        <!-- Resource Controls (prominent) -->
+        <div class="form-section">
+            <h2>SLURM Resources</h2>
+            <div class="config-resources">
+                <div class="config-resource-row">
+                    <div class="config-field config-field-node">
+                        <label>Node</label>
+                        <select id="cfg-nodelist" class="st-input">
+                            <option value="">any</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="config-resource-row">
+                    <div class="config-field config-field-slider">
+                        <label>Memory <span class="st-val" id="cfg-mem-val">4G</span></label>
+                        <input type="range" id="cfg-memory" class="st-slider slider-mem"
+                               min="1" max="128" value="4">
+                    </div>
+                    <div class="config-field config-field-slider">
+                        <label>CPUs <span class="st-val" id="cfg-cpu-val">1</span></label>
+                        <input type="range" id="cfg-cpus" class="st-slider slider-cpu"
+                               min="1" max="64" value="1">
+                    </div>
+                    <div class="config-field config-field-slider">
+                        <label>GPUs <span class="st-val" id="cfg-gpu-val">0</span></label>
+                        <input type="range" id="cfg-gpus" class="st-slider slider-gpu"
+                               min="0" max="8" value="0">
+                    </div>
+                </div>
+                <div class="config-resource-row">
+                    <div class="config-field config-field-time">
+                        <label>Time</label>
+                        <div class="st-time-chips" id="cfg-time-chips"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Job Info -->
+        <div class="form-section">
+            <h2>Job</h2>
+            <div class="config-fields-grid">
+                <div class="config-field">
+                    <label>Name</label>
+                    <input type="text" id="cfg-name" class="st-input" placeholder="my-task">
+                </div>
+                <div class="config-field">
+                    <label>Job Command</label>
+                    <input type="text" id="cfg-job" class="st-input" placeholder="bash run.sh">
+                </div>
+                <div class="config-field">
+                    <label>Git URL</label>
+                    <input type="text" id="cfg-git-url" class="st-input" placeholder="https://github.com/...">
+                </div>
+                <div class="config-field">
+                    <label>Branch</label>
+                    <input type="text" id="cfg-branch" class="st-input" placeholder="main">
+                </div>
+                <div class="config-field">
+                    <label>SSH</label>
+                    <input type="text" id="cfg-ssh" class="st-input" placeholder="ssh config host">
+                </div>
+            </div>
+        </div>
+
+        <div class="config-actions">
+            <button class="btn btn-sm" onclick="closeConfig()">Cancel</button>
+            <button class="btn btn-sm btn-primary" id="cfg-submit-btn" onclick="submitConfig()">Run</button>
+        </div>
+    </div>
+</div>
+
+<div id="result" class="hidden" onclick="this.classList.add('hidden')"></div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+const TIME_PRESETS = [
+    {label: '30m', hours: 0.5},
+    {label: '1h', hours: 1},
+    {label: '2h', hours: 2},
+    {label: '4h', hours: 4},
+    {label: '8h', hours: 8},
+    {label: '24h', hours: 24},
+    {label: '2d', hours: 48},
+    {label: '7d', hours: 168},
+];
+
+let taskConfigs = [];
+let editingIndex = -1;
+let selectedTimeHours = 4;
+
+// --- Cluster ---
 let allJobs = [];
 let allNodes = [];
 let allCapacity = [];
 let selectedNode = null;
+let clusterTimer = null;
 
-async function deleteTask(name) {
-    if (!confirm('Delete "' + name + '"?')) return;
-    await fetch('/api/tasks/' + name, { method: 'DELETE' });
-    location.reload();
-}
-
-async function queryCluster() {
+async function queryCluster(silent) {
     const ssh = document.getElementById('ssh-input').value.trim();
     if (!ssh) return;
     const btn = document.getElementById('query-btn');
     const status = document.getElementById('cluster-status');
-    btn.disabled = true;
-    status.textContent = 'Querying...';
-    document.getElementById('cluster-error').innerHTML = '';
+    const errDiv = document.getElementById('cluster-error');
+    if (!silent) {
+        btn.disabled = true;
+        status.textContent = 'Querying...';
+    }
+    errDiv.innerHTML = '';
 
     try {
         const resp = await fetch('/api/cluster?ssh=' + encodeURIComponent(ssh));
         const data = await resp.json();
         if (data.error) {
-            document.getElementById('cluster-error').innerHTML =
-                '<div class="error">' + data.error + '</div>';
+            if (!silent) errDiv.innerHTML = '<div class="error">' + data.error + '</div>';
             return;
         }
         allNodes = data.nodes || [];
@@ -134,13 +203,21 @@ async function queryCluster() {
         selectedNode = null;
         renderNodes();
         renderJobs();
+        localStorage.setItem('wes_ssh', ssh);
     } catch (err) {
-        document.getElementById('cluster-error').innerHTML =
-            '<div class="error">' + err.message + '</div>';
+        if (!silent) errDiv.innerHTML = '<div class="error">' + err.message + '</div>';
     } finally {
         btn.disabled = false;
         status.textContent = allNodes.length + ' nodes, ' + allJobs.length + ' jobs';
     }
+}
+
+function startClusterAutoRefresh() {
+    if (clusterTimer) clearInterval(clusterTimer);
+    clusterTimer = setInterval(() => {
+        const ssh = document.getElementById('ssh-input').value.trim();
+        if (ssh) queryCluster(true);
+    }, 10000);
 }
 
 function renderNodes() {
@@ -152,7 +229,7 @@ function renderNodes() {
     const idle = allNodes.filter(n => n.state === 'idle').length;
     const alloc = allNodes.filter(n => n.state === 'alloc' || n.state === 'allocated').length;
     const mix = allNodes.filter(n => n.state === 'mix' || n.state === 'node-mix').length;
-    document.getElementById('node-count').textContent = idle + ' idle · ' + alloc + ' alloc · ' + mix + ' mix';
+    document.getElementById('node-count').textContent = idle + ' idle \u00b7 ' + alloc + ' alloc \u00b7 ' + mix + ' mix';
 
     let html = '';
     allNodes.forEach(n => {
@@ -177,8 +254,8 @@ function renderNodes() {
             html += '</div>';
         } else {
             html += '<div class="ns-meta">' + n.cpus + ' CPUs';
-            if (n.gpus !== '-') html += ' · ' + n.gpus + ' GPUs';
-            html += ' · ' + n.memory + '</div>';
+            if (n.gpus !== '-') html += ' \u00b7 ' + n.gpus + ' GPUs';
+            html += ' \u00b7 ' + n.memory + '</div>';
         }
         if (n.partition) html += '<div class="node-card-partition">' + n.partition + '</div>';
         html += '</div>';
@@ -233,10 +310,297 @@ function renderJobs() {
     tbody.innerHTML = html;
 }
 
+// --- Task Tiles & Config ---
+
+async function loadConfig() {
+    const status = document.getElementById('tasks-status');
+    const error = document.getElementById('tasks-error');
+    const empty = document.getElementById('task-empty');
+    status.textContent = 'Loading...';
+    error.innerHTML = '';
+
+    try {
+        const resp = await fetch('/api/config');
+        const data = await resp.json();
+        taskConfigs = data;
+        if (!data.length) {
+            empty.style.display = '';
+            document.getElementById('task-tiles').innerHTML = '';
+            status.textContent = '';
+            return;
+        }
+        empty.style.display = 'none';
+        renderTiles();
+        status.textContent = data.length + ' task' + (data.length > 1 ? 's' : '');
+    } catch (err) {
+        error.innerHTML = '<div class="error">' + err.message + '</div>';
+        status.textContent = '';
+    }
+}
+
+function renderTiles() {
+    const container = document.getElementById('task-tiles');
+    let html = '';
+
+    taskConfigs.forEach((t, i) => {
+        const repo = t.git_url ? t.git_url.split('/').pop().replace('.git', '') : '';
+        const statusClass = 'unknown';
+        html += '<div class="task-tile" onclick="openConfig(' + i + ')">';
+        html += '<div class="task-tile-top">';
+        html += '<span class="dot dot-' + statusClass + '"></span>';
+        html += '<span class="task-tile-name">' + t.name + '</span>';
+        html += '</div>';
+        html += '<div class="task-tile-meta">';
+        if (repo) html += '<span class="task-tile-repo">' + repo + '</span>';
+        if (t.branch) html += '<span class="task-tile-branch">' + t.branch + '</span>';
+        html += '</div>';
+        html += '<div class="task-tile-resources">';
+        html += '<span>' + (t.memory || '-') + '</span>';
+        html += '<span>' + (t.cpus || '1') + ' CPU</span>';
+        if (t.gpus && t.gpus !== '0') html += '<span>' + t.gpus + ' GPU</span>';
+        if (t.time) html += '<span>' + t.time + '</span>';
+        html += '</div>';
+        html += '</div>';
+    });
+
+    // Add tile
+    html += '<div class="task-tile task-tile-add" onclick="openConfig(-1)">';
+    html += '<div class="task-tile-add-icon">+</div>';
+    html += '<div class="task-tile-add-label">New Task</div>';
+    html += '</div>';
+
+    container.innerHTML = html;
+}
+
+function openConfig(index) {
+    editingIndex = index;
+    const panel = document.getElementById('config-panel');
+    const title = document.getElementById('config-title');
+    panel.classList.remove('hidden');
+
+    // Build time chips
+    renderTimeChips();
+    loadNodeOptions();
+
+    if (index >= 0 && index < taskConfigs.length) {
+        const t = taskConfigs[index];
+        title.textContent = t.name;
+        document.getElementById('cfg-name').value = t.name || '';
+        document.getElementById('cfg-git-url').value = t.git_url || '';
+        document.getElementById('cfg-branch').value = t.branch || '';
+        document.getElementById('cfg-ssh').value = t.ssh || '';
+        document.getElementById('cfg-job').value = t.job || '';
+        document.getElementById('cfg-nodelist').value = t.nodelist || '';
+
+        const memGB = parseMemGB(t.memory) || 4;
+        document.getElementById('cfg-memory').value = memGB;
+        document.getElementById('cfg-mem-val').textContent = memGB + 'G';
+
+        const cpus = parseInt(t.cpus) || 1;
+        document.getElementById('cfg-cpus').value = cpus;
+        document.getElementById('cfg-cpu-val').textContent = cpus;
+
+        const gpus = parseInt(t.gpus) || 0;
+        document.getElementById('cfg-gpus').value = gpus;
+        document.getElementById('cfg-gpu-val').textContent = gpus;
+
+        selectedTimeHours = parseTimeHours(t.time) || 4;
+    } else {
+        title.textContent = 'New Task';
+        document.getElementById('cfg-name').value = '';
+        document.getElementById('cfg-git-url').value = '';
+        document.getElementById('cfg-branch').value = '';
+        document.getElementById('cfg-ssh').value = '';
+        document.getElementById('cfg-job').value = '';
+        document.getElementById('cfg-nodelist').value = '';
+        document.getElementById('cfg-memory').value = 4;
+        document.getElementById('cfg-mem-val').textContent = '4G';
+        document.getElementById('cfg-cpus').value = 1;
+        document.getElementById('cfg-cpu-val').textContent = '1';
+        document.getElementById('cfg-gpus').value = 0;
+        document.getElementById('cfg-gpu-val').textContent = '0';
+        selectedTimeHours = 4;
+    }
+    updateTimeChipActive();
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function closeConfig() {
+    document.getElementById('config-panel').classList.add('hidden');
+    editingIndex = -1;
+}
+
+async function loadNodeOptions() {
+    const select = document.getElementById('cfg-nodelist');
+    const current = select.value;
+    select.innerHTML = '<option value="">any</option>';
+
+    const ssh = document.getElementById('ssh-input').value.trim();
+    if (!ssh && !allNodes.length) return;
+
+    if (allNodes.length) {
+        fillNodeSelect(select, allNodes, current);
+        return;
+    }
+
+    try {
+        const resp = await fetch('/api/cluster?ssh=' + encodeURIComponent(ssh));
+        const data = await resp.json();
+        if (data.nodes && data.nodes.length) {
+            fillNodeSelect(select, data.nodes, current);
+        }
+    } catch (_) {}
+}
+
+function fillNodeSelect(select, nodes, current) {
+    let html = '<option value="">any</option>';
+    nodes.forEach(n => {
+        const sel = n.name === current ? ' selected' : '';
+        html += '<option value="' + n.name + '"' + sel + '>' + n.name + ' (' + n.state + ')</option>';
+    });
+    select.innerHTML = html;
+    if (current) select.value = current;
+}
+
+function renderTimeChips() {
+    const container = document.getElementById('cfg-time-chips');
+    let html = '';
+    TIME_PRESETS.forEach(p => {
+        html += '<button type="button" class="time-preset" data-hours="' + p.hours + '" onclick="setTime(' + p.hours + ')">' + p.label + '</button>';
+    });
+    container.innerHTML = html;
+}
+
+function updateTimeChipActive() {
+    document.querySelectorAll('#cfg-time-chips .time-preset').forEach(btn => {
+        const h = parseFloat(btn.dataset.hours);
+        btn.classList.toggle('active', h === selectedTimeHours);
+    });
+    document.getElementById('cfg-time-hidden') && (document.getElementById('cfg-time-hidden').value = formatTime(selectedTimeHours));
+}
+
+function setTime(hours) {
+    selectedTimeHours = hours;
+    updateTimeChipActive();
+}
+
+// Slider listeners
+document.getElementById('cfg-memory').addEventListener('input', e => {
+    document.getElementById('cfg-mem-val').textContent = e.target.value + 'G';
+});
+document.getElementById('cfg-cpus').addEventListener('input', e => {
+    document.getElementById('cfg-cpu-val').textContent = e.target.value;
+});
+document.getElementById('cfg-gpus').addEventListener('input', e => {
+    document.getElementById('cfg-gpu-val').textContent = e.target.value;
+});
+
+function parseMemGB(s) {
+    if (!s) return 0;
+    s = s.trim().toUpperCase();
+    if (s.endsWith('G')) return parseFloat(s);
+    if (s.endsWith('M')) return Math.round(parseInt(s) / 1024) || 1;
+    return parseInt(s) || 0;
+}
+
+function parseTimeHours(s) {
+    if (!s) return 0;
+    const parts = s.trim().split(':');
+    if (parts.length === 3) return parseInt(parts[0]) + parseInt(parts[1]) / 60;
+    return parseFloat(s) || 0;
+}
+
+function formatTime(hours) {
+    const h = Math.floor(hours);
+    const m = Math.round((hours - h) * 60);
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':00';
+}
+
+async function submitConfig() {
+    const btn = document.getElementById('cfg-submit-btn');
+    const result = document.getElementById('result');
+    btn.disabled = true;
+    btn.textContent = '...';
+    if (!result.classList.contains('error')) result.className = '';
+
+    const name = document.getElementById('cfg-name').value.trim();
+    if (!name) {
+        result.textContent = 'Error: task name is required';
+        result.className = 'error';
+        btn.disabled = false;
+        btn.textContent = 'Run';
+        return;
+    }
+
+    const mem = document.getElementById('cfg-memory').value;
+    const time = formatTime(selectedTimeHours);
+    const cpus = String(document.getElementById('cfg-cpus').value);
+    const gpus = String(document.getElementById('cfg-gpus').value);
+    const nodelist = document.getElementById('cfg-nodelist').value.trim();
+
+    result.textContent = (editingIndex >= 0 ? 'Submitting ' : 'Creating ') + name + '...';
+
+    try {
+        let resp;
+        if (editingIndex >= 0) {
+            const overrides = {};
+            if (nodelist) overrides.nodelist = nodelist;
+            overrides.memory = mem + 'G';
+            overrides.cpus = cpus;
+            overrides.gpus = gpus;
+            overrides.time = time;
+            resp = await fetch('/api/submit', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ name, overrides }),
+            });
+        } else {
+            resp = await fetch('/api/tasks', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    name,
+                    git_url: document.getElementById('cfg-git-url').value.trim(),
+                    branch: document.getElementById('cfg-branch').value.trim(),
+                    ssh: document.getElementById('cfg-ssh').value.trim(),
+                    job: document.getElementById('cfg-job').value.trim() || name,
+                    memory: mem + 'G',
+                    cpus,
+                    gpus,
+                    time,
+                    nodelist,
+                }),
+            });
+        }
+        const data = await resp.json();
+        if (resp.ok) {
+            result.textContent = data.message || (data.task + ': ' + data.state);
+            closeConfig();
+            loadConfig();
+        } else {
+            result.textContent = 'Error: ' + (data.detail || 'Unknown error');
+            result.className = 'error';
+        }
+    } catch (err) {
+        result.textContent = 'Error: ' + err.message;
+        result.className = 'error';
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Run';
+    }
+}
+
+async function deleteTask(name) {
+    if (!confirm('Delete "' + name + '"?')) return;
+    await fetch('/api/tasks/' + name, { method: 'DELETE' });
+    location.reload();
+}
+
 document.getElementById('ssh-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') queryCluster();
 });
 
+loadConfig();
 {% if ssh_hosts %}
 queryCluster();
 {% endif %}

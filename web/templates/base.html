@@ -14,7 +14,6 @@
         <div class="nav-links">
             <a href="/" class="{% if active_page == 'dashboard' %}active{% endif %}">Dashboard</a>
             <a href="/slurm" class="{% if active_page == 'slurm' %}active{% endif %}">SLURM</a>
-            <a href="/submit" class="{% if active_page == 'submit' %}active{% endif %}">Submit</a>
         </div>
         <div class="nav-spacer"></div>
     </nav>
@@ -22,7 +21,7 @@
         <aside class="sidebar">
             <div class="sidebar-header">
                 <h3>Tasks</h3>
-                <a href="/submit" class="btn btn-sm btn-primary">+ New</a>
+                <a href="/" class="btn btn-sm btn-primary">+ New</a>
             </div>
             <div class="sidebar-list">
                 {% if tasks is defined and tasks %}

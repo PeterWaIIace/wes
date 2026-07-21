@@ -53,14 +53,6 @@ def task_detail(request: Request, name: str) -> HTMLResponse:
     )
 
 
-@router.get("/submit", response_class=HTMLResponse)
-def submit_page(request: Request) -> HTMLResponse:
-    tasks = list_tasks()
-    return templates.TemplateResponse(
-        request, "submit.html", {"tasks": tasks, "active_page": "submit"}
-    )
-
-
 @router.get("/slurm", response_class=HTMLResponse)
 def slurm_page(request: Request) -> HTMLResponse:
     tasks = list_tasks()

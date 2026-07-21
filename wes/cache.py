@@ -62,6 +62,12 @@ class JobCache:
             "post": task.post,
             "artifacts": task.artifacts,
             "cleanup": task.cleanup_git,
+            "partition": task.partition,
+            "cpus": task.cpus,
+            "gpus": task.gpus,
+            "memory": task.memory,
+            "time": task.time,
+            "nodelist": task.nodelist,
         }
 
     @staticmethod
@@ -79,4 +85,10 @@ class JobCache:
             cleanup=data.get("cleanup", False),
             active_jobs=data.get("jobs_ids", []),
             state=State(data["state"]),
+            partition=data.get("partition", ""),
+            cpus=data.get("cpus", ""),
+            gpus=data.get("gpus", ""),
+            memory=data.get("memory", ""),
+            time=data.get("time", ""),
+            nodelist=data.get("nodelist", ""),
         )

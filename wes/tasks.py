@@ -40,6 +40,12 @@ class Task:
         artifacts: list[str] | None = None,
         active_jobs: list[str] | None = None,
         state: State = State.PENDING,
+        partition: str = "",
+        cpus: str = "",
+        gpus: str = "",
+        memory: str = "",
+        time: str = "",
+        nodelist: str = "",
     ) -> None:
         self.name = name
         self.ssh_config = ssh_config
@@ -53,6 +59,12 @@ class Task:
         self.status = state
         self.jobs_ids: list[str] = active_jobs if active_jobs is not None else []
         self.artifacts: list[str] = artifacts if artifacts is not None else []
+        self.partition = partition
+        self.cpus = cpus
+        self.gpus = gpus
+        self.memory = memory
+        self.time = time
+        self.nodelist = nodelist
 
     def execute(self) -> State:
         if self.status == State.PENDING:
@@ -77,6 +89,22 @@ class Task:
 
     def _log(self, msg: str, kind: str = "•") -> None:
         print(f"  {kind} {msg}")
+
+    def _sbatch_overrides(self) -> str:
+        parts: list[str] = []
+        if self.partition:
+            parts.append(f"--partition={self.partition}")
+        if self.cpus:
+            parts.append(f"--cpus-per-task={self.cpus}")
+        if self.gpus:
+            parts.append(f"--gres=gpu:{self.gpus}")
+        if self.memory:
+            parts.append(f"--mem={self.memory}")
+        if self.time:
+            parts.append(f"--time={self.time}")
+        if self.nodelist:
+            parts.append(f"--nodelist={self.nodelist}")
+        return " ".join(parts)
 
     def __cleanup_repository(self) -> None:
         repo_name = self.git_url.split("/")[-1].replace(".git", "")
@@ -172,7 +200,12 @@ class Task:
         if self.job is None:
             self._log("no job script specified", "✗")
             return State.FAILED
-        script_lines.append(f"sbatch --parsable {Path(self.path, Path(self.job).name)}")
+        overrides = self._sbatch_overrides()
+        sbatch_cmd = "sbatch --parsable"
+        if overrides:
+            sbatch_cmd += f" {overrides}"
+        sbatch_cmd += f" {Path(self.path, Path(self.job).name)}"
+        script_lines.append(sbatch_cmd)
         full_script = "exec > pre_run_output.txt 2>&1\n" + "\n".join(script_lines)
 
         try:
