@@ -2,134 +2,243 @@
 {% block title %}wes - Dashboard{% endblock %}
 
 {% block content %}
-<div class="dashboard">
-    <div class="section">
-        <div class="section-header">
-            <h2>Tasks</h2>
-            <button class="btn" onclick="location.reload()">Refresh</button>
-        </div>
+<h1>Dashboard</h1>
 
-        {% if error %}
-        <div class="error">{{ error }}</div>
-        {% endif %}
-
-        <div class="tile-grid">
-            {% for task in tasks %}
-            <a href="/tasks/{{ task.name }}" class="task-tile">
-                <div class="task-tile-header">
-                    <span class="task-tile-name">{{ task.name }}</span>
-                    <span class="badge badge-{{ task.status|lower }}">{{ task.status }}</span>
-                </div>
-                <div class="task-tile-body">
-                    {% if task.git_url %}
-                    <div class="task-tile-row">
-                        <span class="label">git</span>
-                        <span class="mono">{{ task.git_url.split('/')[-1].replace('.git', '') }}</span>
-                    </div>
-                    {% endif %}
-                    {% if task.branch %}
-                    <div class="task-tile-row">
-                        <span class="label">branch</span>
-                        <span>{{ task.branch }}</span>
-                    </div>
-                    {% endif %}
-                    {% if task.ssh %}
-                    <div class="task-tile-row">
-                        <span class="label">ssh</span>
-                        <span>{{ task.ssh }}</span>
-                    </div>
-                    {% endif %}
-                    {% if task.job_ids %}
-                    <div class="task-tile-row">
-                        <span class="label">jobs</span>
-                        <span class="mono">{{ task.job_ids|join(', ') }}</span>
-                    </div>
-                    {% endif %}
-                </div>
-                <div class="task-tile-footer">
-                    <button class="btn btn-sm" onclick="event.preventDefault(); deleteTask('{{ task.name }}')">Delete</button>
-                </div>
-            </a>
-            {% endfor %}
-            {% if not tasks %}
-            <div class="empty">No tasks found</div>
-            {% endif %}
+<!-- Cluster Panel -->
+<div class="panel">
+    <div class="panel-header">
+        <h2>Cluster</h2>
+        <div class="cluster-bar">
+            <label>SSH</label>
+            <input type="text" id="ssh-input" class="input" placeholder="host or config"
+                   value="{{ ssh_hosts[0] if ssh_hosts else '' }}">
+            <button class="btn btn-sm btn-primary" id="query-btn" onclick="queryCluster()">Query</button>
+            <span id="cluster-status" class="cluster-status-text"></span>
         </div>
     </div>
+    <div id="cluster-error"></div>
+    <div id="nodes-section" style="display:none">
+        <div class="panel-header" style="border-bottom:1px solid var(--border-subtle);border-top:none">
+            <h2>Nodes</h2>
+            <span id="node-count" class="panel-meta"></span>
+        </div>
+        <div id="node-grid" class="node-grid"></div>
+    </div>
+</div>
 
-    <div class="section">
-        <div class="section-header">
-            <h2>Cluster</h2>
-            <div class="cluster-controls">
-                <input type="text" id="ssh-input" class="input" placeholder="SSH host (e.g. hpc)"
-                       value="{{ ssh_hosts[0] if ssh_hosts else '' }}">
-                <button class="btn btn-primary" onclick="loadNodes()">Query</button>
-            </div>
+<!-- Jobs Panel -->
+<div class="panel" id="jobs-panel" style="display:none">
+    <div class="panel-header">
+        <h2 id="jobs-title">Jobs</h2>
+        <div id="jobs-controls" style="display:none">
+            <button class="btn btn-sm" onclick="selectNode(null)">Show all</button>
         </div>
-        <div id="node-status" class="tile-grid">
-            <div class="empty">Enter an SSH host and click Query</div>
+    </div>
+    <div class="panel-body flush">
+        <div class="jobs-table-wrap">
+            <table class="jobs-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>User</th>
+                        <th>State</th>
+                        <th>Time</th>
+                        <th>CPUs</th>
+                        <th>Memory</th>
+                        <th>Nodes</th>
+                        <th>Partition</th>
+                    </tr>
+                </thead>
+                <tbody id="jobs-tbody"></tbody>
+            </table>
         </div>
+    </div>
+</div>
+
+<!-- Tasks Panel -->
+<div class="panel">
+    <div class="panel-header">
+        <h2>Tasks</h2>
+        <a href="/submit" class="btn btn-sm btn-primary">+ New Task</a>
+    </div>
+    <div class="panel-body flush">
+        <table class="jobs-table">
+            <thead>
+                <tr>
+                    <th></th>
+                    <th>Name</th>
+                    <th>Git</th>
+                    <th>Branch</th>
+                    <th>SSH</th>
+                    <th>Jobs</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for task in tasks %}
+                <tr>
+                    <td><span class="dot dot-{{ task.status|lower }}"></span></td>
+                    <td class="job-name-cell"><a href="/tasks/{{ task.name }}" style="color:var(--primary);text-decoration:none;font-weight:500">{{ task.name }}</a></td>
+                    <td class="mono" style="color:var(--text-secondary)">{{ task.git_url.split('/')[-1].replace('.git', '') if task.git_url else '-' }}</td>
+                    <td style="color:var(--text-secondary)">{{ task.branch or '-' }}</td>
+                    <td class="mono" style="color:var(--text-secondary)">{{ task.ssh or '-' }}</td>
+                    <td class="mono" style="color:var(--text-secondary)">{{ task.job_ids|join(', ') or '-' }}</td>
+                    <td>
+                        <button class="btn-ghost" onclick="deleteTask('{{ task.name }}')" title="Delete">&#x2715;</button>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not tasks %}
+                <tr><td colspan="7" class="empty">No tasks found</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+let allJobs = [];
+let allNodes = [];
+let allCapacity = [];
+let selectedNode = null;
+
 async function deleteTask(name) {
     if (!confirm('Delete "' + name + '"?')) return;
     await fetch('/api/tasks/' + name, { method: 'DELETE' });
     location.reload();
 }
 
-async function loadNodes() {
+async function queryCluster() {
     const ssh = document.getElementById('ssh-input').value.trim();
     if (!ssh) return;
-    const container = document.getElementById('node-status');
-    container.innerHTML = '<div class="empty">Querying...</div>';
+    const btn = document.getElementById('query-btn');
+    const status = document.getElementById('cluster-status');
+    btn.disabled = true;
+    status.textContent = 'Querying...';
+    document.getElementById('cluster-error').innerHTML = '';
 
     try {
-        const resp = await fetch('/api/nodes?ssh=' + encodeURIComponent(ssh));
+        const resp = await fetch('/api/cluster?ssh=' + encodeURIComponent(ssh));
         const data = await resp.json();
         if (data.error) {
-            container.innerHTML = '<div class="error">' + data.error + '</div>';
+            document.getElementById('cluster-error').innerHTML =
+                '<div class="error">' + data.error + '</div>';
             return;
         }
-        if (!data.nodes || !data.nodes.length) {
-            container.innerHTML = '<div class="empty">No nodes found</div>';
-            return;
-        }
-
-        let html = '';
-        data.nodes.forEach(n => {
-            const stateClass = n.state === 'idle' ? 'node-idle' :
-                               n.state === 'alloc' || n.state === 'allocated' ? 'node-alloc' :
-                               n.state === 'mix' || n.state === 'mixed' ? 'node-mix' :
-                               'node-other';
-            html += '<div class="node-tile ' + stateClass + '">';
-            html += '<div class="node-tile-name">' + n.name + '</div>';
-            html += '<div class="node-tile-state">' + n.state + '</div>';
-            html += '<div class="node-tile-details">';
-            html += '<span>CPUs ' + n.cpus + '</span>';
-            html += '<span>GPU ' + n.gpus + '</span>';
-            html += '<span>' + n.memory + '</span>';
-            html += '</div>';
-            if (n.partition) {
-                html += '<div class="node-tile-partition">' + n.partition + '</div>';
-            }
-            html += '</div>';
-        });
-        container.innerHTML = html;
+        allNodes = data.nodes || [];
+        allJobs = data.jobs || [];
+        allCapacity = data.capacity || [];
+        selectedNode = null;
+        renderNodes();
+        renderJobs();
     } catch (err) {
-        container.innerHTML = '<div class="error">Failed: ' + err.message + '</div>';
+        document.getElementById('cluster-error').innerHTML =
+            '<div class="error">' + err.message + '</div>';
+    } finally {
+        btn.disabled = false;
+        status.textContent = allNodes.length + ' nodes, ' + allJobs.length + ' jobs';
     }
 }
 
+function renderNodes() {
+    const grid = document.getElementById('node-grid');
+    const section = document.getElementById('nodes-section');
+    if (!allNodes.length) { section.style.display = 'none'; return; }
+    section.style.display = '';
+
+    const idle = allNodes.filter(n => n.state === 'idle').length;
+    const alloc = allNodes.filter(n => n.state === 'alloc' || n.state === 'allocated').length;
+    const mix = allNodes.filter(n => n.state === 'mix' || n.state === 'node-mix').length;
+    document.getElementById('node-count').textContent = idle + ' idle · ' + alloc + ' alloc · ' + mix + ' mix';
+
+    let html = '';
+    allNodes.forEach(n => {
+        const stateClass = n.state === 'idle' ? 'ns-idle' :
+                           n.state === 'alloc' || n.state === 'allocated' ? 'ns-alloc' :
+                           n.state === 'mix' || n.state === 'node-mix' ? 'ns-mix' : 'ns-other';
+        const jobCount = allJobs.filter(j => j.nodes && j.nodes.includes(n.name)).length;
+        const cap = allCapacity.find(c => c.name === n.name);
+        const sel = selectedNode === n.name;
+        html += '<div class="node-card ' + stateClass + (sel ? ' selected' : '') + '" onclick="selectNode(\'' + n.name + '\')">';
+        html += '<div class="node-card-header">';
+        html += '<span class="node-card-name">' + n.name + '</span>';
+        if (jobCount > 0) html += '<span class="node-card-count">' + jobCount + '</span>';
+        html += '</div>';
+        html += '<div class="node-card-state">' + n.state + '</div>';
+        if (cap) {
+            const fmt = mb => mb >= 1024 ? Math.round(mb / 1024) + 'G' : mb + 'M';
+            html += '<div class="node-card-cap">';
+            html += '<div class="cap-row"><span class="cap-label">CPU</span><div class="cap-bar"><div class="cap-bar-fill cap-cpu" style="width:' + (cap.cpu_total ? Math.round(cap.cpu_alloc / cap.cpu_total * 100) : 0) + '%"></div></div><span class="cap-text">' + cap.cpu_alloc + '/' + cap.cpu_total + '</span></div>';
+            if (cap.gpu_total > 0) html += '<div class="cap-row"><span class="cap-label">GPU</span><div class="cap-bar"><div class="cap-bar-fill cap-gpu" style="width:' + Math.round(cap.gpu_alloc / cap.gpu_total * 100) + '%"></div></div><span class="cap-text">' + cap.gpu_alloc + '/' + cap.gpu_total + '</span></div>';
+            html += '<div class="cap-row"><span class="cap-label">MEM</span><div class="cap-bar"><div class="cap-bar-fill cap-mem" style="width:' + (cap.mem_total_mb ? Math.round(cap.mem_alloc_mb / cap.mem_total_mb * 100) : 0) + '%"></div></div><span class="cap-text">' + fmt(cap.mem_alloc_mb) + '/' + fmt(cap.mem_total_mb) + '</span></div>';
+            html += '</div>';
+        } else {
+            html += '<div class="ns-meta">' + n.cpus + ' CPUs';
+            if (n.gpus !== '-') html += ' · ' + n.gpus + ' GPUs';
+            html += ' · ' + n.memory + '</div>';
+        }
+        if (n.partition) html += '<div class="node-card-partition">' + n.partition + '</div>';
+        html += '</div>';
+    });
+    grid.innerHTML = html;
+}
+
+function selectNode(name) {
+    selectedNode = name;
+    renderNodes();
+    renderJobs();
+}
+
+function renderJobs() {
+    const panel = document.getElementById('jobs-panel');
+    const tbody = document.getElementById('jobs-tbody');
+    const controls = document.getElementById('jobs-controls');
+    const title = document.getElementById('jobs-title');
+
+    let jobs = allJobs;
+    if (selectedNode) {
+        jobs = allJobs.filter(j => j.nodes && j.nodes.includes(selectedNode));
+        title.textContent = 'Jobs \u2014 ' + selectedNode;
+        controls.style.display = '';
+    } else {
+        title.textContent = 'All Jobs';
+        controls.style.display = 'none';
+    }
+
+    if (!jobs.length) {
+        tbody.innerHTML = '<tr><td colspan="9" class="empty">' + (selectedNode ? 'No jobs on this node' : 'No jobs found') + '</td></tr>';
+        panel.style.display = '';
+        return;
+    }
+    panel.style.display = '';
+
+    const stateColor = s => s === 'RUNNING' ? 'running' : s === 'PENDING' ? 'pending' : s === 'FAILED' ? 'failed' : 'completed';
+    let html = '';
+    jobs.forEach(j => {
+        html += '<tr>';
+        html += '<td><span class="dot dot-' + stateColor(j.state) + '"></span></td>';
+        html += '<td class="job-name-cell mono">' + j.name + '</td>';
+        html += '<td style="color:var(--text-secondary)">' + j.user + '</td>';
+        html += '<td><span class="badge badge-' + stateColor(j.state) + '">' + j.state + '</span></td>';
+        html += '<td class="mono" style="color:var(--text-secondary)">' + j.time + '</td>';
+        html += '<td class="mono" style="color:var(--text-secondary)">' + j.cpus + '</td>';
+        html += '<td class="mono" style="color:var(--text-secondary)">' + j.memory + '</td>';
+        html += '<td class="mono" style="color:var(--text-secondary);max-width:120px">' + (j.nodes || '-') + '</td>';
+        html += '<td style="color:var(--text-secondary)">' + j.partition + '</td>';
+        html += '</tr>';
+    });
+    tbody.innerHTML = html;
+}
+
 document.getElementById('ssh-input').addEventListener('keydown', e => {
-    if (e.key === 'Enter') loadNodes();
+    if (e.key === 'Enter') queryCluster();
 });
 
 {% if ssh_hosts %}
-loadNodes();
+queryCluster();
 {% endif %}
 </script>
 {% endblock %}

@@ -19,7 +19,9 @@ def dashboard(request: Request) -> HTMLResponse:
     tasks = list_tasks()
     ssh_hosts = sorted({t.ssh for t in tasks if t.ssh})
     return templates.TemplateResponse(
-        request, "dashboard.html", {"tasks": tasks, "ssh_hosts": ssh_hosts}
+        request,
+        "dashboard.html",
+        {"tasks": tasks, "ssh_hosts": ssh_hosts, "active_page": "dashboard"},
     )
 
 
@@ -29,7 +31,9 @@ def task_detail(request: Request, name: str) -> HTMLResponse:
     task = next((t for t in tasks if t.name == name), None)
     if not task:
         return templates.TemplateResponse(
-            request, "dashboard.html", {"tasks": tasks, "error": f"Task '{name}' not found"}
+            request,
+            "dashboard.html",
+            {"tasks": tasks, "error": f"Task '{name}' not found", "active_page": "dashboard"},
         )
     logs = get_logs(name)
     artifacts = list_artifacts(name)
@@ -38,7 +42,10 @@ def task_detail(request: Request, name: str) -> HTMLResponse:
         request,
         "task.html",
         {
+            "tasks": tasks,
             "task": task,
+            "active_task": name,
+            "active_page": "dashboard",
             "logs": logs,
             "artifacts": artifacts,
             "progress": progress,
@@ -48,4 +55,15 @@ def task_detail(request: Request, name: str) -> HTMLResponse:
 
 @router.get("/submit", response_class=HTMLResponse)
 def submit_page(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(request, "submit.html", {})
+    tasks = list_tasks()
+    return templates.TemplateResponse(
+        request, "submit.html", {"tasks": tasks, "active_page": "submit"}
+    )
+
+
+@router.get("/slurm", response_class=HTMLResponse)
+def slurm_page(request: Request) -> HTMLResponse:
+    tasks = list_tasks()
+    return templates.TemplateResponse(
+        request, "slurm.html", {"tasks": tasks, "active_page": "slurm"}
+    )

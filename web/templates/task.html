@@ -2,55 +2,76 @@
 {% block title %}wes - {{ task.name }}{% endblock %}
 
 {% block content %}
-<div class="task-detail">
-    <div class="header-row">
-        <h1>{{ task.name }}</h1>
-        <span class="badge badge-{{ task.status|lower }}">{{ task.status }}</span>
-    </div>
+<h1>{{ task.name }} <span class="badge badge-{{ task.status|lower }}">{{ task.status }}</span></h1>
 
-    <div class="info-grid">
-        <div><strong>Git:</strong> <span class="mono">{{ task.git_url }}</span></div>
-        <div><strong>Branch:</strong> {{ task.branch or '-' }}</div>
-        <div><strong>SSH:</strong> {{ task.ssh }}</div>
-        <div><strong>Job IDs:</strong> <span class="mono">{{ task.job_ids|join(', ') or '-' }}</span></div>
+<div class="task-info-row">
+    <div class="task-info-item">
+        <span class="task-info-label">Git</span>
+        <span class="task-info-value">{{ task.git_url or '-' }}</span>
     </div>
+    <div class="task-info-item">
+        <span class="task-info-label">Branch</span>
+        <span class="task-info-value">{{ task.branch or '-' }}</span>
+    </div>
+    <div class="task-info-item">
+        <span class="task-info-label">SSH</span>
+        <span class="task-info-value">{{ task.ssh or '-' }}</span>
+    </div>
+    <div class="task-info-item">
+        <span class="task-info-label">Job IDs</span>
+        <span class="task-info-value">{{ task.job_ids|join(', ') or '-' }}</span>
+    </div>
+</div>
 
-    <div class="section">
-        <div class="section-header">
-            <h2>Logs</h2>
-            <div class="log-tabs">
-                <button class="tab active" onclick="showTab('stdout')">stdout</button>
-                <button class="tab" onclick="showTab('stderr')">stderr</button>
-                <button class="tab" onclick="showTab('pre_run')">pre-run</button>
-            </div>
+<!-- Logs Panel -->
+<div class="panel">
+    <div class="panel-header">
+        <h2>Logs</h2>
+        <div class="tab-bar">
+            <button class="tab active" onclick="showTab('stdout', this)">stdout</button>
+            <button class="tab" onclick="showTab('stderr', this)">stderr</button>
+            <button class="tab" onclick="showTab('pre_run', this)">pre-run</button>
         </div>
+    </div>
+    <div class="panel-body">
         <div id="log-stdout" class="log-box">{{ logs.stdout or '(empty)' }}</div>
         <div id="log-stderr" class="log-box hidden">{{ logs.stderr or '(empty)' }}</div>
         <div id="log-pre_run" class="log-box hidden">{{ logs.pre_run or '(empty)' }}</div>
     </div>
+</div>
 
-    {% if progress.columns %}
-    <div class="section">
+<!-- Progress Panel -->
+{% if progress.columns %}
+<div class="panel">
+    <div class="panel-header">
         <h2>Training Progress</h2>
+    </div>
+    <div class="panel-body">
         <div class="chart-container">
             <canvas id="progress-chart"></canvas>
         </div>
     </div>
-    {% endif %}
+</div>
+{% endif %}
 
-    <div class="section">
-        <div class="section-header">
-            <h2>Artifacts</h2>
-            <button class="btn btn-sm" onclick="refreshArtifacts()">Refresh from remote</button>
-        </div>
+<!-- Artifacts Panel -->
+<div class="panel">
+    <div class="panel-header">
+        <h2>Artifacts</h2>
+        <button class="btn btn-sm" onclick="refreshArtifacts()">Refresh</button>
+    </div>
 
-        {% set videos = artifacts|selectattr('kind', 'equalto', 'video')|list %}
-        {% set models = artifacts|selectattr('kind', 'equalto', 'model')|list %}
-        {% set csvs = artifacts|selectattr('kind', 'equalto', 'csv')|list %}
-        {% set images = artifacts|selectattr('kind', 'equalto', 'image')|list %}
+    {% set videos = artifacts|selectattr('kind', 'equalto', 'video')|list %}
+    {% set models = artifacts|selectattr('kind', 'equalto', 'model')|list %}
+    {% set csvs = artifacts|selectattr('kind', 'equalto', 'csv')|list %}
+    {% set images = artifacts|selectattr('kind', 'equalto', 'image')|list %}
 
-        {% if videos %}
-        <h3>Videos ({{ videos|length }})</h3>
+    {% if videos %}
+    <div class="panel-header" style="border-bottom:none">
+        <h2>Videos</h2>
+        <span class="panel-meta">{{ videos|length }}</span>
+    </div>
+    <div class="panel-body">
         <div class="video-grid">
             {% for v in videos|reverse %}
             <div class="video-item">
@@ -61,10 +82,15 @@
             </div>
             {% endfor %}
         </div>
-        {% endif %}
+    </div>
+    {% endif %}
 
-        {% if models %}
-        <h3>Models ({{ models|length }})</h3>
+    {% if models %}
+    <div class="panel-header" style="border-bottom:none">
+        <h2>Models</h2>
+        <span class="panel-meta">{{ models|length }}</span>
+    </div>
+    <div class="panel-body flush">
         <div class="model-list">
             {% for m in models|reverse %}
             <div class="model-item">
@@ -73,10 +99,15 @@
             </div>
             {% endfor %}
         </div>
-        {% endif %}
+    </div>
+    {% endif %}
 
-        {% if images %}
-        <h3>Images ({{ images|length }})</h3>
+    {% if images %}
+    <div class="panel-header" style="border-bottom:none">
+        <h2>Images</h2>
+        <span class="panel-meta">{{ images|length }}</span>
+    </div>
+    <div class="panel-body">
         <div class="image-grid">
             {% for img in images %}
             <div class="image-item">
@@ -84,10 +115,15 @@
             </div>
             {% endfor %}
         </div>
-        {% endif %}
+    </div>
+    {% endif %}
 
-        {% if csvs %}
-        <h3>Data Files ({{ csvs|length }})</h3>
+    {% if csvs %}
+    <div class="panel-header" style="border-bottom:none">
+        <h2>Data Files</h2>
+        <span class="panel-meta">{{ csvs|length }}</span>
+    </div>
+    <div class="panel-body flush">
         <div class="model-list">
             {% for c in csvs %}
             <div class="model-item">
@@ -96,22 +132,22 @@
             </div>
             {% endfor %}
         </div>
-        {% endif %}
-
-        {% if not artifacts %}
-        <p class="empty">No artifacts found</p>
-        {% endif %}
     </div>
+    {% endif %}
+
+    {% if not artifacts %}
+    <div class="panel-body"><p class="empty">No artifacts found</p></div>
+    {% endif %}
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-function showTab(name) {
+function showTab(name, btn) {
     document.querySelectorAll('.log-box').forEach(el => el.classList.add('hidden'));
     document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
     document.getElementById('log-' + name).classList.remove('hidden');
-    event.target.classList.add('active');
+    btn.classList.add('active');
 }
 
 async function refreshArtifacts() {
@@ -125,18 +161,11 @@ async function refreshArtifacts() {
 (function() {
     const columns = {{ progress.columns|tojson }};
     const rows = {{ progress.rows|tojson }};
-
-    // find key columns
     const timestepsCol = columns.indexOf('time/total_timesteps');
     const rewardCol = columns.indexOf('eval/reward');
     const actorCol = columns.indexOf('train/actor_loss');
     const criticCol = columns.indexOf('train/critic_loss');
-
-    const labels = [];
-    const rewardData = [];
-    const actorData = [];
-    const criticData = [];
-
+    const labels = [], rewardData = [], actorData = [], criticData = [];
     rows.forEach(row => {
         const ts = parseFloat(row[timestepsCol]);
         if (isNaN(ts)) return;
@@ -145,35 +174,27 @@ async function refreshArtifacts() {
         actorData.push(parseFloat(row[actorCol]) || null);
         criticData.push(parseFloat(row[criticCol]) || null);
     });
-
     const datasets = [];
-    if (rewardData.some(v => v !== null)) {
-        datasets.push({ label: 'Reward', data: rewardData, borderColor: '#4ade80', tension: 0.3, yAxisID: 'y' });
-    }
-    if (actorData.some(v => v !== null)) {
-        datasets.push({ label: 'Actor Loss', data: actorData, borderColor: '#60a5fa', tension: 0.3, yAxisID: 'y1' });
-    }
-    if (criticData.some(v => v !== null)) {
-        datasets.push({ label: 'Critic Loss', data: criticData, borderColor: '#f472b6', tension: 0.3, yAxisID: 'y1' });
-    }
-
+    if (rewardData.some(v => v !== null)) datasets.push({ label: 'Reward', data: rewardData, borderColor: '#0d9488', tension: 0.3, yAxisID: 'y' });
+    if (actorData.some(v => v !== null)) datasets.push({ label: 'Actor Loss', data: actorData, borderColor: '#4a90d9', tension: 0.3, yAxisID: 'y1' });
+    if (criticData.some(v => v !== null)) datasets.push({ label: 'Critic Loss', data: criticData, borderColor: '#d97706', tension: 0.3, yAxisID: 'y1' });
     if (datasets.length > 0) {
         const script = document.createElement('script');
         script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
         script.onload = function() {
-            const ctx = document.getElementById('progress-chart').getContext('2d');
-            new Chart(ctx, {
+            new Chart(document.getElementById('progress-chart').getContext('2d'), {
                 type: 'line',
                 data: { labels, datasets },
                 options: {
                     responsive: true,
+                    maintainAspectRatio: false,
                     interaction: { mode: 'index', intersect: false },
                     scales: {
-                        x: { title: { display: true, text: 'Timesteps', color: '#94a3b8' }, ticks: { color: '#94a3b8' }, grid: { color: '#334155' } },
-                        y: { position: 'left', title: { display: true, text: 'Reward', color: '#94a3b8' }, ticks: { color: '#94a3b8' }, grid: { color: '#334155' } },
-                        y1: { position: 'right', title: { display: true, text: 'Loss', color: '#94a3b8' }, ticks: { color: '#94a3b8' }, grid: { drawOnChartArea: false } }
+                        x: { title: { display: true, text: 'Timesteps', color: '#9aa0a6' }, ticks: { color: '#9aa0a6' }, grid: { color: '#ececee' } },
+                        y: { position: 'left', title: { display: true, text: 'Reward', color: '#9aa0a6' }, ticks: { color: '#9aa0a6' }, grid: { color: '#ececee' } },
+                        y1: { position: 'right', title: { display: true, text: 'Loss', color: '#9aa0a6' }, ticks: { color: '#9aa0a6' }, grid: { drawOnChartArea: false } }
                     },
-                    plugins: { legend: { labels: { color: '#e2e8f0' } } }
+                    plugins: { legend: { labels: { color: '#5f6368', usePointStyle: true, pointStyle: 'circle' } } }
                 }
             });
         };

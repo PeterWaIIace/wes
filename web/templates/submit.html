@@ -2,11 +2,15 @@
 {% block title %}wes - Submit{% endblock %}
 
 {% block content %}
-<div class="submit-page">
-    <h1>Submit Job</h1>
-    <form id="submit-form" onsubmit="submitConfig(event)">
-        <label for="config">.wes Configuration (YAML)</label>
-        <textarea id="config" name="config" rows="20" spellcheck="false">sequence:
+<h1>Submit Task</h1>
+
+<div class="panel">
+    <div class="panel-header">
+        <h2>.wes Configuration</h2>
+    </div>
+    <div class="panel-body">
+        <form id="submit-form" onsubmit="submitConfig(event)">
+            <textarea id="config" name="config" rows="18" spellcheck="false">sequence:
     my-task:
         git_url: ssh://git@your-repo.git
         branch: main
@@ -20,11 +24,12 @@
         post:
             path/to/post.sh
         cleanup: True</textarea>
-        <div class="form-actions">
-            <button type="submit" class="btn btn-primary">Run</button>
-        </div>
-    </form>
-    <div id="result" class="hidden"></div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Run</button>
+            </div>
+        </form>
+        <div id="result" class="hidden"></div>
+    </div>
 </div>
 {% endblock %}
 
@@ -36,28 +41,17 @@ async function submitConfig(e) {
     const result = document.getElementById('result');
     result.className = '';
     result.textContent = 'Submitting...';
-
     try {
         const resp = await fetch('/api/run', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ config: config })
         });
-        const text = await resp.text();
-        let data;
-        try { data = JSON.parse(text); } catch(e) {
-            result.textContent = 'Error: server returned non-JSON response';
-            return;
-        }
+        const data = await resp.json();
         if (resp.ok) {
             let lines = [];
-            if (data.tasks && data.tasks.length) {
-                lines.push('Started: ' + data.tasks.join(', '));
-            }
-            if (data.errors && data.errors.length) {
-                lines.push('Errors:');
-                data.errors.forEach(err => lines.push('  ' + err));
-            }
+            if (data.tasks && data.tasks.length) lines.push('Started: ' + data.tasks.join(', '));
+            if (data.errors && data.errors.length) { lines.push('Errors:'); data.errors.forEach(err => lines.push('  ' + err)); }
             if (!lines.length) lines.push('No tasks started');
             result.textContent = lines.join('\n');
         } else {

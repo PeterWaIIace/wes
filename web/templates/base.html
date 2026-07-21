@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}wes{% endblock %}</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@300;400;500;600;700&display=swap">
     <link rel="stylesheet" href="/static/style.css">
     {% block head %}{% endblock %}
 </head>
@@ -11,13 +12,36 @@
     <nav>
         <a href="/" class="nav-brand">wes</a>
         <div class="nav-links">
-            <a href="/">Dashboard</a>
-            <a href="/submit">Submit</a>
+            <a href="/" class="{% if active_page == 'dashboard' %}active{% endif %}">Dashboard</a>
+            <a href="/slurm" class="{% if active_page == 'slurm' %}active{% endif %}">SLURM</a>
+            <a href="/submit" class="{% if active_page == 'submit' %}active{% endif %}">Submit</a>
         </div>
+        <div class="nav-spacer"></div>
     </nav>
-    <main>
-        {% block content %}{% endblock %}
-    </main>
+    <div class="app-layout">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h3>Tasks</h3>
+                <a href="/submit" class="btn btn-sm btn-primary">+ New</a>
+            </div>
+            <div class="sidebar-list">
+                {% if tasks is defined and tasks %}
+                    {% for task in tasks %}
+                    <a href="/tasks/{{ task.name }}" class="sidebar-item {% if active_task is defined and active_task == task.name %}active{% endif %}">
+                        <span class="dot dot-{{ task.status|lower }}"></span>
+                        <span class="item-name">{{ task.name }}</span>
+                        <span class="badge badge-{{ task.status|lower }}">{{ task.status[:3] }}</span>
+                    </a>
+                    {% endfor %}
+                {% else %}
+                    <div class="sidebar-empty">No tasks yet</div>
+                {% endif %}
+            </div>
+        </aside>
+        <div class="main-content">
+            {% block content %}{% endblock %}
+        </div>
+    </div>
     <script src="/static/app.js"></script>
     {% block scripts %}{% endblock %}
 </body>

@@ -12,10 +12,14 @@ from fastapi.responses import FileResponse
 from web.models import (
     ArtifactEntry,
     ClusterData,
+    JobInfo,
+    JobsData,
     LogData,
     NodeInfo,
     ProgressData,
     RunRequest,
+    SlurmJobResponse,
+    SlurmJobSpec,
     TaskSummary,
 )
 from wes.cache import JobCache
@@ -295,3 +299,150 @@ def get_nodes(ssh: str = "") -> ClusterData:
             for n in nodes
         ],
     )
+
+
+@router.get("/jobs", response_model=JobsData)
+def get_jobs(ssh: str = "") -> JobsData:
+    if not ssh:
+        cache = JobCache(persistent=True)
+        try:
+            for data in cache.get_all().values():
+                if data.get("ssh"):
+                    ssh = data["ssh"]
+                    break
+        finally:
+            cache.close()
+
+    if not ssh:
+        return JobsData(ssh="", error="No SSH host specified and none found in cached tasks")
+
+    from wes.cluster import get_jobs as fetch_jobs
+
+    try:
+        jobs = fetch_jobs(ssh)
+    except Exception as e:
+        log.error("Failed to fetch jobs from '%s': %s", ssh, e)
+        return JobsData(ssh=ssh, error=str(e))
+
+    return JobsData(
+        ssh=ssh,
+        jobs=[
+            JobInfo(
+                job_id=j.job_id,
+                user=j.user,
+                name=j.name,
+                state=j.state,
+                time=j.time,
+                nodes=j.nodes,
+                partition=j.partition,
+                reason=j.reason,
+                cpus=j.cpus,
+                memory=j.memory,
+            )
+            for j in jobs
+        ],
+    )
+
+
+@router.get("/cluster")
+def get_cluster(ssh: str = "") -> dict:
+    """Return both nodes and jobs for a cluster in one call."""
+    if not ssh:
+        cache = JobCache(persistent=True)
+        try:
+            for data in cache.get_all().values():
+                if data.get("ssh"):
+                    ssh = data["ssh"]
+                    break
+        finally:
+            cache.close()
+
+    if not ssh:
+        return {"ssh": "", "error": "No SSH host specified"}
+
+    from wes.cluster import get_capacity as fetch_capacity
+    from wes.cluster import get_jobs as fetch_jobs
+    from wes.cluster import get_nodes as fetch_nodes
+
+    try:
+        nodes = fetch_nodes(ssh)
+        jobs = fetch_jobs(ssh)
+        capacity = fetch_capacity(ssh)
+    except Exception as e:
+        log.error("Failed to fetch cluster data from '%s': %s", ssh, e)
+        return {"ssh": ssh, "error": str(e)}
+
+    return {
+        "ssh": ssh,
+        "nodes": [
+            {
+                "name": n.name,
+                "partition": n.partition,
+                "state": n.state,
+                "cpus": n.cpus,
+                "gpus": n.gpus,
+                "memory": n.memory,
+                "reason": n.reason,
+            }
+            for n in nodes
+        ],
+        "capacity": [
+            {
+                "name": c.name,
+                "cpu_total": c.cpu_total,
+                "cpu_alloc": c.cpu_alloc,
+                "cpu_free": c.cpu_free,
+                "mem_total_mb": c.mem_total_mb,
+                "mem_alloc_mb": c.mem_alloc_mb,
+                "mem_free_mb": c.mem_free_mb,
+                "gpu_total": c.gpu_total,
+                "gpu_alloc": c.gpu_alloc,
+                "gpu_free": c.gpu_free,
+            }
+            for c in capacity
+        ],
+        "jobs": [
+            {
+                "job_id": j.job_id,
+                "user": j.user,
+                "name": j.name,
+                "state": j.state,
+                "time": j.time,
+                "nodes": j.nodes,
+                "partition": j.partition,
+                "reason": j.reason,
+                "cpus": j.cpus,
+                "memory": j.memory,
+            }
+            for j in jobs
+        ],
+    }
+
+
+@router.post("/slurm")
+def generate_slurm(spec: SlurmJobSpec) -> SlurmJobResponse:
+    """Generate an sbatch script and CLI args from a SlurmJobSpec."""
+    from wes.cluster import SlurmJob
+
+    job = SlurmJob(
+        name=spec.name,
+        partition=spec.partition,
+        nodes=spec.nodes,
+        ntasks=spec.ntasks,
+        cpus_per_task=spec.cpus_per_task,
+        gres=spec.gres,
+        memory=spec.memory,
+        time=spec.time,
+        nodelist=spec.nodelist,
+        output=spec.output,
+        error=spec.error,
+        email=spec.email,
+        mail_type=spec.mail_type,
+        account=spec.account,
+        qos=spec.qos,
+        workdir=spec.workdir,
+        env_vars=spec.env_vars,
+        command=spec.command,
+        script_path=spec.script_path,
+    )
+    return SlurmJobResponse(script=job.to_script(), args=job.sbatch_args())
