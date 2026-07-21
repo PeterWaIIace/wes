@@ -7,7 +7,6 @@ from wes.jobs.query import JobsQuery
 
 
 class Cluster:
-
     def __init__(self, ssh_config: str):
         self.ssh_config = ssh_config
 

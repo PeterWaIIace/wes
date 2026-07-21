@@ -60,9 +60,7 @@ class TestNodeInfo:
             raise AssertionError("Should have raised ValueError")
 
     def test_parse_strips_whitespace(self) -> None:
-        info = NodeInfo(
-            "  gpu0  |  gpu  |  idle  |  8  |  1  |  32000  |  none  "
-        )
+        info = NodeInfo("  gpu0  |  gpu  |  idle  |  8  |  1  |  32000  |  none  ")
         assert info.name == "gpu0"
         assert info.partition == "gpu"
         assert info.state == "idle"
@@ -250,9 +248,7 @@ class TestWES:
     def test_get_nodes(self, mock_cluster_cls):
         info = NodeInfo("gpu0|gpu|idle|8|1|32000|")
         cap = NodeCapacity(SCONTROL_V100)
-        mock_cluster_cls.return_value.get_nodes.return_value = [
-            Node(info, cap)
-        ]
+        mock_cluster_cls.return_value.get_nodes.return_value = [Node(info, cap)]
         wes = WES("host")
         nodes = wes.get_nodes()
         assert len(nodes) == 1
