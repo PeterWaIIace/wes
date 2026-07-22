@@ -4,6 +4,15 @@
         <button class="cf-btn" id="close-btn">&#x2715; Close</button>
     </div>
     <div class="cf-form">
+        <div class="cf-section" id="template-section" style="display:none">
+            <h2>Load from Template</h2>
+            <div class="cf-template-row">
+                <select id="template-select" class="cf-select">
+                    <option value="">-- select a task to copy --</option>
+                </select>
+            </div>
+        </div>
+
         <div class="cf-section">
             <h2>SLURM Resources</h2>
             <div class="cf-resources">
@@ -33,10 +42,10 @@
             <h2>Job</h2>
             <div class="cf-grid">
                 <div class="cf-field"><label>Name</label><input type="text" id="name" class="cf-input" placeholder="my-task"></div>
-                <div class="cf-field"><label>Job Command</label><input type="text" id="job" class="cf-input" placeholder="bash run.sh"></div>
-                <div class="cf-field"><label>Git URL</label><input type="text" id="git-url" class="cf-input" placeholder="https://github.com/..."></div>
-                <div class="cf-field"><label>Branch</label><input type="text" id="branch" class="cf-input" placeholder="main"></div>
-                <div class="cf-field"><label>SSH</label><input type="text" id="ssh" class="cf-input" placeholder="ssh config host"></div>
+                <div class="cf-field"><label>Job Command</label><input type="text" id="job" class="cf-input" placeholder="bash run.sh" list="dl-job"></div>
+                <div class="cf-field"><label>Git URL</label><input type="text" id="git-url" class="cf-input" placeholder="https://github.com/..." list="dl-git-url"></div>
+                <div class="cf-field"><label>Branch</label><input type="text" id="branch" class="cf-input" placeholder="main" list="dl-branch"></div>
+                <div class="cf-field"><label>SSH</label><input type="text" id="ssh" class="cf-input" placeholder="ssh config host" list="dl-ssh"></div>
             </div>
         </div>
 
@@ -45,4 +54,9 @@
             <button class="cf-btn cf-btn-primary" id="submit-btn">Run</button>
         </div>
     </div>
+
+    <datalist id="dl-git-url"></datalist>
+    <datalist id="dl-branch"></datalist>
+    <datalist id="dl-ssh"></datalist>
+    <datalist id="dl-job"></datalist>
 </div>

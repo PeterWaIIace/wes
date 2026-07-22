@@ -3,16 +3,15 @@ import { WesComponent } from '../base/WesComponent.js';
 class SettingsList extends WesComponent {
     async connectedCallback() {
         await this.loadTemplate('settings-list');
+        if (this._items) this.render();
     }
 
-    set items(arr) {
-        this._items = arr;
-        this.render();
-    }
+    set items(arr) { this._items = arr; if (this._ready) this.render(); }
 
     render() {
         const list = this._shadow.getElementById('list');
         const empty = this._shadow.getElementById('empty');
+        if (!list) return;
 
         if (!this._items || !this._items.length) {
             list.innerHTML = '';

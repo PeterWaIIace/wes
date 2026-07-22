@@ -3,17 +3,18 @@ import { WesComponent } from '../base/WesComponent.js';
 class TaskTile extends WesComponent {
     async connectedCallback() {
         await this.loadTemplate('task-tile');
-        this.render();
+        if (this._data) this.render();
     }
 
-    set data(d) { this._data = d; this.render(); }
+    set data(d) { this._data = d; if (this._ready) this.render(); }
 
     render() {
         const d = this._data;
         if (!d) return;
 
         const tile = this._shadow.getElementById('tile');
-        tile.href = '/tasks/' + d.name;
+        if (!tile) return;
+        tile.href = '#';
 
         this._shadow.getElementById('name').textContent = d.name;
 
@@ -37,6 +38,12 @@ class TaskTile extends WesComponent {
         if (d.gpus && d.gpus !== '0') resHtml += `<span>${d.gpus} GPU</span>`;
         if (d.time) resHtml += `<span>${d.time}</span>`;
         res.innerHTML = resHtml;
+
+        this._shadow.getElementById('launch-btn').onclick = e => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.emit('task-launch', { name: d.name, task: d });
+        };
 
         this._shadow.getElementById('edit-btn').onclick = e => {
             e.preventDefault();

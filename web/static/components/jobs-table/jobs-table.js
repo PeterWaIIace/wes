@@ -3,13 +3,14 @@ import { WesComponent } from '../base/WesComponent.js';
 class JobsTable extends WesComponent {
     async connectedCallback() {
         await this.loadTemplate('jobs-table');
-        this.render([]);
+        this.render(this._jobs || []);
     }
 
-    set data(jobs) { this._jobs = jobs; this.render(jobs); }
+    set data(jobs) { this._jobs = jobs; if (this._ready) this.render(jobs); }
 
     render(jobs) {
         const tbody = this._shadow.getElementById('tbody');
+        if (!tbody) return;
         if (!jobs || !jobs.length) {
             tbody.innerHTML = '<tr><td colspan="9" class="jt-empty">No jobs found</td></tr>';
             return;

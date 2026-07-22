@@ -67,4 +67,6 @@
 .cf-btn:hover { background: var(--bg-hover, #f0f1f3); }
 .cf-btn-primary { background: var(--primary, #004a6c); border-color: var(--primary, #004a6c); color: #fff; }
 .cf-btn-primary:hover { background: var(--primary-hover, #003a56); }
+.cf-template-row { display: flex; gap: 0.5rem; align-items: center; }
+.cf-template-row .cf-select { flex: 1; }
 .hidden { display: none !important; }

@@ -47,7 +47,7 @@ def task_detail(request: Request, name: str) -> HTMLResponse:
             "active_task": name,
             "active_page": "dashboard",
             "logs": logs,
-            "artifacts": artifacts,
+            "artifacts": [a.model_dump() for a in artifacts],
             "progress": progress,
         },
     )

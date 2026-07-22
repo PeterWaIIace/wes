@@ -1,11 +1,10 @@
 sequence:
-- testing_ppo:
+- fly-to-point-fyghi7:
     branch: Piotr/verifying-control-algorihtms
-    cpus: '6'
+    cpus: '1'
     git_url: ssh://git@ben.ii.pw.edu.pl:9000/pwalas/swarm-gym.git
-    gpus: '1'
+    gpus: '2'
     job: bach_example/job.sh
     memory: 4G
     nodelist: flip
     ssh: hpc
-    time: 04:00:00

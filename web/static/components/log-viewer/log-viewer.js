@@ -5,32 +5,41 @@ class LogViewer extends WesComponent {
         super();
         this._tabs = [];
         this._active = null;
+        this._logs = {};
     }
 
     async connectedCallback() {
         await this.loadTemplate('log-viewer');
+        if (this._tabs.length) this._renderTabs();
+        Object.entries(this._logs).forEach(([name, content]) => this._setLog(name, content));
     }
 
     set tabs(t) {
         this._tabs = t;
         this._active = t[0]?.name || null;
-        this._renderTabs();
+        if (this._ready) this._renderTabs();
     }
 
     setLogs(name, content) {
-        if (!this._shadow.querySelector(`[data-log="${name}"]`)) {
-            const body = this._shadow.querySelector('.lv-body');
-            const pre = document.createElement('div');
+        this._logs[name] = content;
+        if (this._ready) this._setLog(name, content);
+    }
+
+    _setLog(name, content) {
+        let pre = this._shadow.querySelector(`[data-log="${name}"]`);
+        if (!pre) {
+            pre = document.createElement('div');
             pre.className = 'lv-log';
             pre.dataset.log = name;
-            pre.textContent = content || '(empty)';
-            pre.style.display = name === this._active ? '' : 'none';
-            body.appendChild(pre);
+            this._shadow.querySelector('.lv-body').appendChild(pre);
         }
+        pre.textContent = content || '(empty)';
+        pre.style.display = name === this._active ? '' : 'none';
     }
 
     _renderTabs() {
         const tabs = this._shadow.getElementById('tabs');
+        if (!tabs) return;
         tabs.innerHTML = this._tabs.map(t =>
             `<button class="lv-tab${t.name === this._active ? ' active' : ''}" data-tab="${t.name}">${t.label}</button>`
         ).join('');

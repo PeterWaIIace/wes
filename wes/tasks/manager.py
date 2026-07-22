@@ -25,6 +25,7 @@ def _sep(label: str = "") -> str:
         return f" {left}{right}"
     return SEP * w
 
+
 class Task:
     def __init__(
         self,
@@ -72,11 +73,29 @@ class Task:
     def _run_dir(self) -> str:
         return f"runs/{self.run_id}"
 
-    def getStatus(self) -> State:
+    def execute(self) -> State:
+        if self.status == State.PENDING:
+            self.__create_run_dir()
+            self.__clone_repository()
+            self.status = self.execute_remote_job()
+        elif self.status == State.RUNNING:
+            self.__check_pre_run()
+            self.__check_stderr()
+            self.__check_stdout()
+            self.__sync_artifacts()
+            self.status = self.__health_check()
+        if self.status in (State.COMPLETED, State.FAILED):
+            self.jobs_ids = []
+            self.__execute_post_script()
+            self.__sync_artifacts()
+            self.__cleanup_run_dir()
         return self.status
 
     def execute_remote_job(self) -> State:
         return self.__execute_job()
+
+    def _log(self, msg: str, kind: str = "•") -> None:
+        print(f"  {kind} {msg}")
 
     def _sbatch_overrides(self) -> str:
         parts: list[str] = []
@@ -132,6 +151,16 @@ class Task:
         if result.stdout:
             print(result.stdout, end="")
 
+    def __sync_artifacts(self) -> None:
+        for artifact in self.artifacts:
+            parts = artifact.split("/")
+            path = parts[0]
+            tfile = "/".join(parts[1:])
+            dest = Path("results") / self.name / self.run_id / path
+            dest.mkdir(parents=True, exist_ok=True)
+            remote = f"{self._run_dir}/{path}"
+            self.__scp_from(remote, tfile + "/.", str(dest), r=True)
+
     def __scp_from(self, remote_path: str, tfile: str, cfile: str, r: bool = False) -> None:
         if not tfile or not cfile:
             print("No file specified for SCP", file=sys.stderr)
@@ -146,16 +175,6 @@ class Task:
             text=True,
             check=False,
         )
-
-    def __sync_artifacts(self) -> None:
-        for artifact in self.artifacts:
-            parts = artifact.split("/")
-            path = parts[0]
-            tfile = "/".join(parts[1:])
-            dest = Path("results") / self.name / self.run_id / path
-            dest.mkdir(parents=True, exist_ok=True)
-            remote = f"{self._run_dir}/{path}"
-            self.__scp_from(remote, tfile + "/.", str(dest), r=True)
 
     def __execute_post_script(self) -> None:
         if not self.post:
@@ -313,106 +332,3 @@ class Task:
             except (subprocess.CalledProcessError, OSError, subprocess.TimeoutExpired):
                 pass
         return logs
-
-class RemoteRunner:
-
-    def __init__(self, ssh_config: str) -> None:
-        self.ssh_config = ssh_config
-
-    def _log(self, msg: str, kind: str = "•") -> None:
-        print(f"  {kind} {msg}")
-
-    def _ssh_run(self, ssh_config: str, cmd: str) -> list[str]:
-        """Run a command via SSH and return non-header lines."""
-        result = subprocess.run(
-            ["ssh", ssh_config, cmd],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            return []
-        return [
-            line
-            for line in result.stdout.strip().splitlines()
-            if line.strip() and not line.startswith("JOBID")
-        ]
-
-    def run_command(self, cmd: str) -> list[str]:
-        result = self._ssh_run(self.ssh_config, cmd)
-        self._log(f"{result}")
-        return result
-
-    def __create_dir(self, dir) -> None:
-        self._log(f"creating run dir {dir}", "▶")
-        result = self.run_command(f"mkdir -p {dir}")
-        
-    def __cleanup_dir(self, dir) -> None:
-        self._log(f"creating run dir {dir}", "▶")
-        result = self.run_command(f"rm -rf {dir}")
-        self._log(f"{result}")
-
-    def __clone_repository(self, dir, git_url, branch : Optional[str] = None) -> None:
-        git_name = git_url.split("/")[-1].replace(".git", "")
-        if branch:
-            clone_cmd = f"git clone -b {branch} {git_url} {dir}/{git_name}"
-        else:
-            clone_cmd = f"git clone {git_url} {dir}/{git_name}"
-        self.run_command(clone_cmd)
-
-    def __scp_to(self, dir : str, file: str | None, r: bool = False) -> None:
-        if not file:
-            self._log("no file specified for SCP", "⚠")
-            return
-        dest = f"{self.ssh_conf}:{dir}/"
-        cmd = ["scp", file, dest]
-        if r:
-            cmd = ["scp", "-r", file, dest]
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        if result.stdout:
-            print(result.stdout, end="")
-
-    def __scp_from(self, remote_path: str, tfile: str, cfile: str, r: bool = False) -> None:
-        if not tfile or not cfile:
-            print("No file specified for SCP", file=sys.stderr)
-            return
-        src = f"{self.ssh_config}:{remote_path}/{tfile}"
-        cmd = ["rsync", "-e", "ssh", src, cfile]
-        if r:
-            cmd = ["rsync", "-r", "--no-inc-recursive", "-e", "ssh", src, cfile]
-        subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-
-class TaskManager:
-    def __init__(self) -> None:
-        self.tasks: dict[str, Task] = {}
-
-    def add_task(self, task: Task) -> None:
-        self.tasks[task.name] = task
-
-    def get_task(self, name: str) -> Task | None:
-        return self.tasks.get(name) 
-
-    def check(self, task):
-        status = task.getStatus()
-        if status == State.PENDING:
-            self.__create_run_dir()
-            self.__clone_repository()
-            self.status = self.execute_remote_job()
-        elif status == State.RUNNING:
-            self.__check_pre_run()
-            self.__check_stderr()
-            self.__check_stdout()
-            self.__sync_artifacts()
-            self.status = self.__health_check()
-        if status in (State.COMPLETED, State.FAILED):
-            self.jobs_ids = []
-            self.__execute_post_script()
-            self.__sync_artifacts()
-            self.__cleanup_run_dir()
-        return self.status
-

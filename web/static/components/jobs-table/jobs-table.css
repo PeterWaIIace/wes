@@ -27,3 +27,33 @@
 .jt-table .mono { font-family: var(--mono, monospace); font-size: 0.78rem; }
 .jt-table .jt-name { font-weight: 500; max-width: 250px; }
 .jt-empty { text-align: center; color: var(--text-muted, #9aa0a6); padding: 1.5rem; font-size: 0.85rem; }
+.dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+}
+.dot-pending { background: var(--yellow, #d97706); }
+.dot-running { background: var(--green, #0d9488); animation: pulse-dot 2s infinite; }
+.dot-completed { background: var(--green, #0d9488); }
+.dot-failed { background: var(--red, #dc2626); }
+.dot-cancelled { background: var(--text-muted, #9aa0a6); }
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.85); }
+}
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.15rem 0.55rem;
+    border-radius: 99px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+.badge-pending { background: var(--yellow-light, #fef3cd); color: var(--yellow, #d97706); }
+.badge-running { background: var(--green-light, #e6f7f5); color: var(--green, #0d9488); }
+.badge-completed { background: var(--green-light, #e6f7f5); color: var(--green, #0d9488); }
+.badge-failed { background: var(--red-light, #fee2e2); color: var(--red, #dc2626); }
+.badge-cancelled { background: var(--bg-surface, #f7f8fa); color: var(--text-muted, #9aa0a6); }

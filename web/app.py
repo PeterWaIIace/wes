@@ -24,7 +24,7 @@ async def _poll_running_jobs() -> None:
     cache = JobCache(persistent=True)
     while True:
         try:
-            for name, data in cache.get_all().items():
+            for name, data in (cache.get_all() or {}).items():
                 state = State(data["state"])
                 if state == State.RUNNING:
                     task = JobCache.cached_task(name, data)

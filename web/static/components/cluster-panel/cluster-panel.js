@@ -8,6 +8,7 @@ class ClusterPanel extends WesComponent {
         this.allCapacity = [];
         this.selectedNode = null;
         this._timer = null;
+        this._intervalSec = 10;
     }
 
     async connectedCallback() {
@@ -20,19 +21,36 @@ class ClusterPanel extends WesComponent {
         this._shadow.getElementById('ssh-input').addEventListener('keydown', e => { if (e.key === 'Enter') this.query(); });
         this._shadow.getElementById('show-all-btn').addEventListener('click', () => this.selectNode(null));
 
-        this._timer = setInterval(() => {
-            const ssh = this._shadow.getElementById('ssh-input').value.trim();
-            if (ssh) this.query(true);
-        }, 10000);
-
+        await this._loadSettings();
         this._restoreCache();
         if (savedSsh) {
             this.query(true);
         }
+        this._startAutoRefresh();
     }
 
     disconnectedCallback() {
         if (this._timer) clearInterval(this._timer);
+    }
+
+    async _loadSettings() {
+        try {
+            const resp = await fetch('/api/settings');
+            const data = await resp.json();
+            if (data.query_interval) this._intervalSec = data.query_interval;
+        } catch (_) {}
+    }
+
+    _startAutoRefresh() {
+        if (this._timer) clearInterval(this._timer);
+        this._timer = setInterval(() => {
+            const ssh = this._shadow.getElementById('ssh-input').value.trim();
+            if (ssh) this.query(true);
+        }, this._intervalSec * 1000);
+    }
+
+    refreshInterval() {
+        this._loadSettings().then(() => this._startAutoRefresh());
     }
 
     _restoreCache() {
@@ -135,7 +153,7 @@ class ClusterPanel extends WesComponent {
         }
 
         panel.style.display = '';
-        tbl.data = jobs;
+        if (tbl) tbl.data = jobs;
     }
 }
 

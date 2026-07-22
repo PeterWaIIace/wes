@@ -25,7 +25,7 @@ class TimeChips extends WesComponent {
     }
 
     get value() { return this._value; }
-    set value(h) { this._value = h; this.render(); }
+    set value(h) { this._value = h; if (this._ready) this.render(); }
 
     formatTime(hours) {
         const h = Math.floor(hours);
@@ -42,6 +42,7 @@ class TimeChips extends WesComponent {
 
     render() {
         const container = this._shadow.querySelector('.tc-chips');
+        if (!container) return;
         container.innerHTML = PRESETS.map(p =>
             `<button type="button" class="tc-btn${p.hours === this._value ? ' active' : ''}" data-hours="${p.hours}">${p.label}</button>`
         ).join('');

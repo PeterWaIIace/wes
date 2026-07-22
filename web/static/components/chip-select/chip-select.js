@@ -8,20 +8,16 @@ class ChipSelect extends WesComponent {
 
     async connectedCallback() {
         await this.loadTemplate('chip-select');
-        this.render();
+        if (this._items) this.render();
     }
 
-    setOptions(items) {
-        this._items = items;
-        this.render();
-    }
-
+    setOptions(items) { this._items = items; if (this._ready) this.render(); }
     get value() { return this._value; }
-    set value(v) { this._value = v; this._highlight(); }
+    set value(v) { this._value = v; if (this._ready) this._highlight(); }
 
     render() {
         const container = this._shadow.getElementById('chips');
-        if (!this._items) return;
+        if (!container || !this._items) return;
         container.innerHTML = this._items.map((item, i) =>
             `<span class="cs-chip${item.value === this._value ? ' active' : ''}" data-value="${item.value}">${item.label}</span>`
         ).join('');

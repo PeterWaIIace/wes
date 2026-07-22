@@ -6,15 +6,14 @@ class ArtifactList extends WesComponent {
         this._shadow.getElementById('refresh-btn').addEventListener('click', () => {
             this.emit('artifacts-refresh');
         });
+        if (this._artifacts) this.render();
     }
 
-    set data(artifacts) {
-        this._artifacts = artifacts;
-        this.render();
-    }
+    set data(artifacts) { this._artifacts = artifacts; if (this._ready) this.render(); }
 
     render() {
         const content = this._shadow.getElementById('content');
+        if (!content) return;
         const a = this._artifacts;
         if (!a || !a.length) {
             content.innerHTML = '<div class="al-body"><p class="al-empty">No artifacts found</p></div>';

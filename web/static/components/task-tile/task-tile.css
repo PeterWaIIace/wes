@@ -62,3 +62,17 @@
 .tt-tile:hover .tt-edit { opacity: 1; }
 .tt-delete { color: var(--red, #dc2626); }
 .tt-delete:hover { opacity: 0.7 !important; }
+.dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.dot-pending { background: var(--yellow, #d97706); }
+.dot-running { background: var(--green, #0d9488); animation: pulse-dot 2s infinite; }
+.dot-completed { background: var(--green, #0d9488); }
+.dot-failed { background: var(--red, #dc2626); }
+.dot-cancelled { background: var(--text-muted, #9aa0a6); }
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.85); }
+}

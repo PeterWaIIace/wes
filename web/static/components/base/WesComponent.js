@@ -2,6 +2,7 @@ export class WesComponent extends HTMLElement {
     constructor() {
         super();
         this._shadow = this.attachShadow({ mode: 'open' });
+        this._ready = false;
     }
 
     async loadTemplate(name) {
@@ -11,6 +12,7 @@ export class WesComponent extends HTMLElement {
             fetch(`${base}/${name}.css`).then(r => r.text()),
         ]);
         this._shadow.innerHTML = `<style>${css}</style>${html}`;
+        this._ready = true;
     }
 
     $(sel) { return this._shadow.querySelector(sel); }

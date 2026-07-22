@@ -22,67 +22,416 @@
     </div>
 </div>
 
+<!-- Jobs Panel -->
+<div class="panel">
+    <div class="panel-header">
+        <h2>Jobs</h2>
+        <span id="jobs-status" class="cluster-status-text"></span>
+    </div>
+    <div id="jobs-error"></div>
+    <div id="jobs-list" class="task-tiles"></div>
+    <div id="jobs-empty" class="empty-state" style="display:none">
+        No running jobs
+    </div>
+</div>
+
 <config-panel id="config-panel"></config-panel>
-<div id="result" class="hidden"></div>
+
+<!-- Launch Modal -->
+<div id="launch-modal" class="modal-overlay hidden">
+    <div class="modal-panel">
+        <div class="modal-header">
+            <span class="modal-title">Launch</span>
+            <span id="launch-task-name" class="modal-task-name"></span>
+            <button class="btn-ghost modal-close" id="launch-close-btn">&#x2715;</button>
+        </div>
+        <div class="modal-body">
+            <div class="modal-task-info">
+                <div class="modal-info-row">
+                    <span class="modal-info-label">Repo</span>
+                    <span class="modal-info-value" id="launch-repo"></span>
+                </div>
+                <div class="modal-info-row">
+                    <span class="modal-info-label">Branch</span>
+                    <span class="modal-info-value" id="launch-branch"></span>
+                </div>
+                <div class="modal-info-row">
+                    <span class="modal-info-label">Job</span>
+                    <span class="modal-info-value" id="launch-job"></span>
+                </div>
+            </div>
+            <div class="modal-section">
+                <div class="modal-section-title">Resources</div>
+                <div class="modal-resources">
+                    <div class="modal-resource-row">
+                        <label>Node</label>
+                        <select id="launch-nodelist" class="modal-select"></select>
+                    </div>
+                    <div class="modal-resource-row">
+                        <label>Memory</label>
+                        <resource-slider id="launch-mem" min="1" max="128" class="slider-mem"></resource-slider>
+                    </div>
+                    <div class="modal-resource-row">
+                        <label>CPUs</label>
+                        <resource-slider id="launch-cpu" min="1" max="64" class="slider-cpu"></resource-slider>
+                    </div>
+                    <div class="modal-resource-row">
+                        <label>GPUs</label>
+                        <resource-slider id="launch-gpu" min="0" max="8" class="slider-gpu"></resource-slider>
+                    </div>
+                    <div class="modal-resource-row">
+                        <label>Time</label>
+                        <time-chips id="launch-time"></time-chips>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-actions">
+            <button class="btn" id="launch-cancel-btn">Cancel</button>
+            <button class="btn btn-primary" id="launch-go-btn">&#9654; Launch</button>
+        </div>
+    </div>
+</div>
+
+<!-- Launcher Overlay -->
+<div id="launcher-overlay" class="launcher-overlay hidden">
+    <div class="launcher-panel">
+        <div class="launcher-header">
+            <span class="launcher-header-label">Job</span>
+            <span id="launcher-job-id" class="launcher-task-name"></span>
+        </div>
+        <div class="launcher-steps">
+            <div class="launcher-step" data-step="launching">
+                <div class="launcher-step-dot"></div>
+                <div class="launcher-step-label">Submitting</div>
+            </div>
+            <div class="launcher-arrow">↓</div>
+            <div class="launcher-step" data-step="pending">
+                <div class="launcher-step-dot"></div>
+                <div class="launcher-step-label">Pending</div>
+            </div>
+            <div class="launcher-arrow">↓</div>
+            <div class="launcher-step" data-step="running">
+                <div class="launcher-step-dot"></div>
+                <div class="launcher-step-label">Running</div>
+            </div>
+            <div class="launcher-arrow">↓</div>
+            <div class="launcher-step" data-step="completed">
+                <div class="launcher-step-dot"></div>
+                <div class="launcher-step-label">Completed</div>
+            </div>
+        </div>
+        <div id="launcher-error" class="launcher-error hidden">
+            <pre id="launcher-error-msg" class="launcher-error-msg"></pre>
+            <div class="launcher-error-actions">
+                <button id="launcher-fetch-logs" class="btn btn-sm launcher-fetch-logs">Fetch Logs</button>
+                <button id="launcher-understood" class="btn btn-primary launcher-understood">Understood</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script type="module">
 let taskConfigs = [];
-let cachedTasks = {};
+let cachedJobs = {};
 let editingIndex = -1;
+let launcherTimer = null;
+let launchTaskData = null;
 
-async function loadConfig() {
-    const status = document.getElementById('tasks-status');
-    const error = document.getElementById('tasks-error');
-    const empty = document.getElementById('task-empty');
-    status.textContent = 'Loading...';
-    error.innerHTML = '';
+const launcherOverlay = document.getElementById('launcher-overlay');
+const launcherJobId = document.getElementById('launcher-job-id');
+const launcherError = document.getElementById('launcher-error');
+const launcherErrorMsg = document.getElementById('launcher-error-msg');
+const launcherUnderstood = document.getElementById('launcher-understood');
+const launcherFetchLogs = document.getElementById('launcher-fetch-logs');
+const launcherSteps = launcherOverlay.querySelectorAll('.launcher-step');
+let launcherActiveJobId = '';
 
-    try {
-        const [configResp, tasksResp] = await Promise.all([
-            fetch('/api/config'),
-            fetch('/api/tasks'),
-        ]);
-        const data = await configResp.json();
-        const tasks = await tasksResp.json();
-        cachedTasks = {};
-        tasks.forEach(t => { cachedTasks[t.name] = t; });
-        taskConfigs = data;
-        if (!data.length) {
-            empty.style.display = '';
-            document.getElementById('task-tiles').innerHTML = '';
-            status.textContent = '';
-            return;
+function setLauncherStep(name) {
+    launcherSteps.forEach(s => {
+        const step = s.getAttribute('data-step');
+        s.classList.remove('active', 'done', 'failed');
+        if (step === name) s.classList.add('active');
+    });
+}
+
+function markLauncherStep(name, state) {
+    launcherSteps.forEach(s => {
+        if (s.getAttribute('data-step') === name) {
+            s.classList.remove('active', 'done', 'failed');
+            s.classList.add(state);
         }
-        empty.style.display = 'none';
-        renderTiles();
-        status.textContent = data.length + ' task' + (data.length > 1 ? 's' : '');
-    } catch (err) {
-        error.innerHTML = '<div class="error">' + err.message + '</div>';
-        status.textContent = '';
+    });
+}
+
+function showLauncher(jobId) {
+    if (launcherTimer) { clearTimeout(launcherTimer); launcherTimer = null; }
+    launcherJobId.textContent = jobId;
+    launcherActiveJobId = jobId;
+    launcherError.classList.add('hidden');
+    launcherSteps.forEach(s => s.classList.remove('active', 'done', 'failed'));
+    setLauncherStep('launching');
+    launcherOverlay.classList.remove('hidden');
+}
+
+function hideLauncher() {
+    launcherOverlay.classList.add('hidden');
+    if (launcherTimer) { clearTimeout(launcherTimer); launcherTimer = null; }
+}
+
+function showLauncherError(msg) {
+    launcherErrorMsg.textContent = msg;
+    launcherError.classList.remove('hidden');
+}
+
+async function fetchLauncherLogs() {
+    if (!launcherActiveJobId) return;
+    launcherFetchLogs.disabled = true;
+    launcherFetchLogs.textContent = 'Fetching...';
+    try {
+        let logText = launcherErrorMsg.textContent;
+        try {
+            const resp = await fetch('/api/jobs/' + encodeURIComponent(launcherActiveJobId) + '/remote-logs');
+            if (resp.ok) {
+                const data = await resp.json();
+                for (const [fname, content] of Object.entries(data)) {
+                    const label = fname.replace('.txt', '').replace(/_/g, ' ');
+                    logText += '\n\n--- ' + label + ' ---\n' + content;
+                }
+            }
+        } catch (_) {}
+        const resp2 = await fetch('/api/jobs/' + encodeURIComponent(launcherActiveJobId) + '/logs');
+        if (resp2.ok) {
+            const data = await resp2.json();
+            if (data.pre_run) logText += '\n\n--- pre_run (local) ---\n' + data.pre_run;
+            if (data.stdout) logText += '\n\n--- stdout (local) ---\n' + data.stdout;
+            if (data.stderr) logText += '\n\n--- stderr (local) ---\n' + data.stderr;
+        }
+        launcherErrorMsg.textContent = logText;
+    } catch (e) {
+        launcherErrorMsg.textContent += '\n\nFailed to fetch logs: ' + e.message;
+    } finally {
+        launcherFetchLogs.disabled = false;
+        launcherFetchLogs.textContent = 'Fetch Logs';
     }
 }
 
-function renderTiles() {
+launcherUnderstood.addEventListener('click', () => hideLauncher());
+launcherFetchLogs.addEventListener('click', () => fetchLauncherLogs());
+
+// ── Launch Modal ──
+
+const launchModal = document.getElementById('launch-modal');
+const launchMem = document.getElementById('launch-mem');
+const launchCpu = document.getElementById('launch-cpu');
+const launchGpu = document.getElementById('launch-gpu');
+const launchTime = document.getElementById('launch-time');
+const launchNodelist = document.getElementById('launch-nodelist');
+
+function openLaunchModal(taskData) {
+    launchTaskData = taskData;
+    document.getElementById('launch-task-name').textContent = taskData.name;
+    document.getElementById('launch-repo').textContent = taskData.git_url.split('/').pop().replace('.git', '');
+    document.getElementById('launch-branch').textContent = taskData.branch || '-';
+    document.getElementById('launch-job').textContent = taskData.job || '-';
+
+    if (launchMem) launchMem.value = parseInt(taskData.memory) || 4;
+    if (launchCpu) launchCpu.value = parseInt(taskData.cpus) || 1;
+    if (launchGpu) launchGpu.value = parseInt(taskData.gpus) || 0;
+    if (launchTime && taskData.time) {
+        const parts = taskData.time.split(':');
+        launchTime.value = parseInt(parts[0]) + parseInt(parts[1] || 0) / 60;
+    }
+
+    loadLaunchNodes(taskData.ssh);
+    launchModal.classList.remove('hidden');
+}
+
+function closeLaunchModal() {
+    launchModal.classList.add('hidden');
+    launchTaskData = null;
+}
+
+async function loadLaunchNodes(ssh) {
+    launchNodelist.innerHTML = '<option value="">any</option>';
+    launchNodelist.innerHTML += '<option value="local">local</option>';
+    try {
+        const resp = await fetch('/api/nodes' + (ssh ? '?ssh=' + encodeURIComponent(ssh) : ''));
+        const data = await resp.json();
+        if (data.nodes) {
+            data.nodes.forEach(n => {
+                const opt = document.createElement('option');
+                opt.value = n.name;
+                opt.textContent = `${n.name} (${n.cpus} cpus, ${n.gpus} gpus, ${n.memory})`;
+                launchNodelist.appendChild(opt);
+            });
+        }
+    } catch (_) {}
+}
+
+document.getElementById('launch-close-btn').addEventListener('click', closeLaunchModal);
+document.getElementById('launch-cancel-btn').addEventListener('click', closeLaunchModal);
+launchModal.addEventListener('click', e => { if (e.target === launchModal) closeLaunchModal(); });
+
+document.getElementById('launch-go-btn').addEventListener('click', async () => {
+    if (!launchTaskData) return;
+    const overrides = {};
+    if (launchMem) overrides.memory = launchMem.value + 'G';
+    if (launchCpu) overrides.cpus = String(launchCpu.value);
+    if (launchGpu) overrides.gpus = String(launchGpu.value);
+    if (launchTime) overrides.time = launchTime.value;
+    if (launchNodelist) overrides.nodelist = launchNodelist.value;
+
+    closeLaunchModal();
+    showLauncher(launchTaskData.name + '...');
+    setLauncherStep('launching');
+
+    try {
+        const resp = await fetch('/api/jobs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ task_name: launchTaskData.name, overrides }),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+            const jobId = data.job_id;
+            launcherJobId.textContent = jobId;
+            launcherActiveJobId = jobId;
+            markLauncherStep('launching', 'done');
+            if (data.state === 'RUNNING') {
+                markLauncherStep('pending', 'done');
+                setLauncherStep('running');
+                loadDashboard();
+                launcherTimer = setTimeout(hideLauncher, 5000);
+            } else if (data.state === 'FAILED') {
+                markLauncherStep('pending', 'failed');
+                showLauncherError(`${jobId} failed during launch`);
+                loadDashboard();
+            } else {
+                setLauncherStep('pending');
+                loadDashboard();
+                pollJobStatus(jobId, 15);
+            }
+        } else {
+            markLauncherStep('launching', 'failed');
+            showLauncherError(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail, null, 2) || 'Launch failed');
+        }
+    } catch (e) {
+        markLauncherStep('launching', 'failed');
+        showLauncherError(e.message);
+    }
+});
+
+// ── Job polling ──
+
+async function pollJobStatus(jobId, attempts) {
+    for (let i = 0; i < attempts; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        try {
+            const resp = await fetch('/api/jobs/' + encodeURIComponent(jobId));
+            if (!resp.ok) continue;
+            const data = await resp.json();
+            const state = (data.state || '').toUpperCase();
+            if (state === 'RUNNING') {
+                markLauncherStep('pending', 'done');
+                setLauncherStep('running');
+                loadDashboard();
+                launcherTimer = setTimeout(hideLauncher, 5000);
+                return;
+            }
+            if (state === 'FAILED') {
+                markLauncherStep('pending', 'failed');
+                showLauncherError(`${jobId} failed on the cluster`);
+                loadDashboard();
+                return;
+            }
+            if (state === 'PENDING') {
+                markLauncherStep('pending', 'active');
+            }
+        } catch (_) {}
+    }
+    markLauncherStep('completed', 'active');
+    loadDashboard();
+    launcherTimer = setTimeout(hideLauncher, 8000);
+}
+
+// ── Dashboard ──
+
+async function loadDashboard() {
+    const tasksStatus = document.getElementById('tasks-status');
+    const tasksError = document.getElementById('tasks-error');
+    const taskEmpty = document.getElementById('task-empty');
+    const jobsStatus = document.getElementById('jobs-status');
+    const jobsError = document.getElementById('jobs-error');
+    const jobsEmpty = document.getElementById('jobs-empty');
+
+    tasksStatus.textContent = 'Loading...';
+    tasksError.innerHTML = '';
+    jobsStatus.textContent = 'Loading...';
+    jobsError.innerHTML = '';
+
+    try {
+        const [tasksResp, jobsResp] = await Promise.all([
+            fetch('/api/tasks'),
+            fetch('/api/jobs'),
+        ]);
+        const tasks = await tasksResp.json();
+        const jobs = await jobsResp.json();
+
+        taskConfigs = tasks;
+        cachedJobs = {};
+        jobs.forEach(j => { cachedJobs[j.job_id] = j; });
+
+        if (!tasks.length) {
+            taskEmpty.style.display = '';
+            document.getElementById('task-tiles').innerHTML = '';
+            tasksStatus.textContent = '';
+        } else {
+            taskEmpty.style.display = 'none';
+            renderTaskTiles();
+            tasksStatus.textContent = tasks.length + ' task' + (tasks.length > 1 ? 's' : '');
+        }
+
+        if (!jobs.length) {
+            jobsEmpty.style.display = '';
+            document.getElementById('jobs-list').innerHTML = '';
+            jobsStatus.textContent = '';
+        } else {
+            jobsEmpty.style.display = 'none';
+            renderJobList();
+            jobsStatus.textContent = jobs.length + ' job' + (jobs.length > 1 ? 's' : '');
+        }
+    } catch (err) {
+        tasksError.innerHTML = '<div class="error">' + err.message + '</div>';
+        tasksStatus.textContent = '';
+        jobsStatus.textContent = '';
+    }
+}
+
+function renderTaskTiles() {
     const container = document.getElementById('task-tiles');
     container.innerHTML = '';
 
     taskConfigs.forEach((t, i) => {
         const tile = document.createElement('task-tile');
-        const cached = cachedTasks[t.name];
         tile.data = {
             name: t.name,
             repo: t.git_url ? t.git_url.split('/').pop().replace('.git', '') : '',
             branch: t.branch || '',
-            status: cached ? cached.status : 'PENDING',
-            artifactCount: cached && cached.artifacts ? cached.artifacts.length : 0,
+            status: 'idle',
+            artifactCount: 0,
             memory: t.memory || '',
             cpus: t.cpus || '1',
             gpus: t.gpus || '0',
             time: t.time || '',
             index: i,
+            git_url: t.git_url,
+            ssh: t.ssh,
+            job: t.job,
         };
+        tile.addEventListener('task-launch', e => openLaunchModal(e.detail.task));
         tile.addEventListener('task-edit', e => openConfig(e.detail.index));
         tile.addEventListener('task-delete', e => deleteTask(e.detail.name));
         container.appendChild(tile);
@@ -93,6 +442,37 @@ function renderTiles() {
     addTile.onclick = () => openConfig(-1);
     addTile.innerHTML = '<div class="task-tile-add-icon">+</div><div class="task-tile-add-label">New Task</div>';
     container.appendChild(addTile);
+}
+
+function renderJobList() {
+    const container = document.getElementById('jobs-list');
+    container.innerHTML = '';
+
+    Object.values(cachedJobs).forEach(job => {
+        const tile = document.createElement('div');
+        tile.className = 'task-tile job-tile';
+        const state = (job.state || 'unknown').toLowerCase();
+        tile.innerHTML = `
+            <div class="tt-top">
+                <span class="dot dot-${state}"></span>
+                <span class="tt-name">${job.job_id}</span>
+                <span class="tt-actions">
+                    <span class="badge badge-${state}">${job.state}</span>
+                    <button class="btn-ghost tt-delete job-cancel-btn" data-job-id="${job.job_id}" title="Cancel">&#x2715;</button>
+                </span>
+            </div>
+            <div class="tt-meta">
+                <span class="tt-repo">${job.task_name || ''}</span>
+                <span class="tt-branch">${job.branch || ''}</span>
+            </div>
+        `;
+        tile.querySelector('.job-cancel-btn').addEventListener('click', e => {
+            e.preventDefault();
+            e.stopPropagation();
+            cancelJob(job.job_id);
+        });
+        container.appendChild(tile);
+    });
 }
 
 function openConfig(index) {
@@ -112,47 +492,71 @@ function openConfig(index) {
     }
 }
 
-function closeConfig() {
-    document.getElementById('config-panel').close();
-    editingIndex = -1;
-}
-
 async function deleteTask(name) {
     if (!confirm('Remove "' + name + '"? This will cancel running jobs, clean up remote files, and delete the config.')) return;
-    const result = document.getElementById('result');
-    result.className = '';
-    result.textContent = 'Removing ' + name + '...';
     try {
         const resp = await fetch('/api/tasks/' + encodeURIComponent(name), { method: 'DELETE' });
         const data = await resp.json();
         if (resp.ok) {
-            result.textContent = data.message || 'Removed ' + name;
-            loadConfig();
+            loadDashboard();
         } else {
-            result.textContent = 'Error: ' + (data.detail || 'Unknown error');
-            result.className = 'error';
+            alert(data.detail || 'Failed to delete task');
         }
     } catch (err) {
-        result.textContent = 'Error: ' + err.message;
-        result.className = 'error';
+        alert('Error: ' + err.message);
     }
 }
 
+async function cancelJob(jobId) {
+    if (!confirm('Cancel job "' + jobId + '"?')) return;
+    try {
+        const resp = await fetch('/api/jobs/' + encodeURIComponent(jobId), { method: 'DELETE' });
+        const data = await resp.json();
+        if (resp.ok) {
+            loadDashboard();
+        } else {
+            alert(data.detail || 'Failed to cancel job');
+        }
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+// ── Config panel events ──
+
 const configPanel = document.getElementById('config-panel');
+
 configPanel.addEventListener('config-success', e => {
-    const result = document.getElementById('result');
-    result.className = '';
-    result.textContent = e.detail.message;
-    loadConfig();
+    const detail = e.detail || {};
+    loadDashboard();
+    const msg = detail.message || `Task '${detail.name}' saved`;
+    const toast = document.createElement('div');
+    toast.className = 'toast success';
+    toast.textContent = msg;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
 });
+
 configPanel.addEventListener('config-error', e => {
-    const result = document.getElementById('result');
-    result.textContent = e.detail.message;
-    result.className = 'error';
+    const detail = e.detail || {};
+    const msg = typeof detail.message === 'string' ? detail.message : JSON.stringify(detail.message || detail, null, 2);
+    alert(msg);
 });
 
-document.getElementById('reload-btn').addEventListener('click', loadConfig);
+// ── Init ──
 
-loadConfig();
+document.getElementById('reload-btn').addEventListener('click', loadDashboard);
+
+// Pass cluster node data to launch modal when available
+const clusterPanel = document.querySelector('cluster-panel');
+if (clusterPanel) {
+    clusterPanel.addEventListener('cluster-loaded', e => {
+        if (launchModal && !launchModal.classList.contains('hidden')) {
+            loadLaunchNodes(launchTaskData?.ssh);
+        }
+    });
+}
+
+loadDashboard();
 </script>
 {% endblock %}

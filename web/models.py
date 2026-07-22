@@ -3,15 +3,56 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 
-class TaskSummary(BaseModel):
+class TaskInfo(BaseModel):
+    """Task recipe from .wes file."""
     name: str
-    status: str
     git_url: str
-    branch: str
-    ssh: str
-    job_ids: list[str]
-    job: str | None = None
+    branch: str = ""
+    ssh: str = ""
+    job: str = ""
+    path: str = "."
+    run: list[str] = []
+    post: str = ""
     artifacts: list[str] = []
+    cleanup: bool = False
+    partition: str = ""
+    cpus: str = ""
+    gpus: str = ""
+    memory: str = ""
+    time: str = ""
+    nodelist: str = ""
+
+
+class JobSummary(BaseModel):
+    """Job execution from cache."""
+    job_id: str
+    task_name: str
+    state: str
+    run_id: str = ""
+    jobs_ids: list[str] = []
+    git_url: str = ""
+    branch: str = ""
+    ssh: str = ""
+    job: str = ""
+    partition: str = ""
+    cpus: str = ""
+    gpus: str = ""
+    memory: str = ""
+    time: str = ""
+    nodelist: str = ""
+
+
+class LaunchJobRequest(BaseModel):
+    task_name: str
+    overrides: dict[str, str] = {}
+
+
+class CreateTaskRequest(BaseModel):
+    name: str
+    git_url: str = ""
+    branch: str = ""
+    ssh: str = ""
+    job: str = ""
     partition: str = ""
     cpus: str = ""
     gpus: str = ""
@@ -142,20 +183,7 @@ class SubmitRequest(BaseModel):
     overrides: dict[str, str] = {}
 
 
-class CreateTaskRequest(BaseModel):
-    name: str
-    git_url: str = ""
-    branch: str = ""
-    ssh: str = ""
-    job: str = ""
-    partition: str = ""
-    cpus: str = ""
-    gpus: str = ""
-    memory: str = ""
-    time: str = ""
-    nodelist: str = ""
-
-
 class SettingsData(BaseModel):
     ssh_hosts: list[str] = []
     form_history: dict[str, list[str]] = {}
+    query_interval: int = 10

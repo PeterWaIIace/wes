@@ -5,16 +5,19 @@ class NodeCard extends WesComponent {
 
     async connectedCallback() {
         await this.loadTemplate('node-card');
-        this.render();
+        if (this._data) this.render();
     }
 
-    set data(d) { this._data = d; this.render(); }
+    set data(d) { this._data = d; if (this._ready) this.render(); }
 
     render() {
         const d = this._data;
         if (!d) return;
 
-        this._shadow.getElementById('name').textContent = d.name;
+        const nameEl = this._shadow.getElementById('name');
+        if (!nameEl) return;
+
+        nameEl.textContent = d.name;
         this._shadow.getElementById('state').textContent = d.state;
 
         const card = this._shadow.getElementById('card');

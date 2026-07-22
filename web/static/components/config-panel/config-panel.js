@@ -1,169 +1,212 @@
-import { WesComponent } from '../base/WesComponent.js';
+import { WesComponent } from "../base/WesComponent.js";
+import "../time-chips/time-chips.js";
+import "../resource-slider/resource-slider.js";
 
 class ConfigPanel extends WesComponent {
     constructor() {
         super();
-        this._editing = false;
-        this._data = null;
+        this._templates = [];
     }
 
     async connectedCallback() {
-        await this.loadTemplate('config-panel');
+        await this.loadTemplate("config-panel");
+        this._panel = this.$("#panel");
+        this._title = this.$("#title");
+        this._name = this.$("#name");
+        this._job = this.$("#job");
+        this._gitUrl = this.$("#git-url");
+        this._branch = this.$("#branch");
+        this._ssh = this.$("#ssh");
+        this._nodelist = this.$("#nodelist");
+        this._memSlider = this.$("resource-slider#mem-slider");
+        this._cpuSlider = this.$("resource-slider#cpu-slider");
+        this._gpuSlider = this.$("resource-slider#gpu-slider");
+        this._timeChips = this.$("time-chips#time-chips");
+        this._templateSelect = this.$("#template-select");
+        this._templateSection = this.$("#template-section");
 
-        this._shadow.getElementById('close-btn').addEventListener('click', () => this.close());
-        this._shadow.getElementById('cancel-btn').addEventListener('click', () => this.close());
-        this._shadow.getElementById('submit-btn').addEventListener('click', () => this._submit());
+        this.$("#cancel-btn").addEventListener("click", () => this.close());
+        this.$("#close-btn").addEventListener("click", () => this.close());
+        this.$("#submit-btn").addEventListener("click", () => this._submit());
+        this._templateSelect.addEventListener("change", () => this._loadFromTemplate());
 
-        this._shadow.getElementById('time-chips').addEventListener('time-change', e => {
-            this._time = e.detail.time;
+        this.addEventListener("node-change", (e) => {
+            this._nodelist.value = e.detail || "";
         });
 
-        this._shadow.getElementById('mem-slider').addEventListener('slider-change', e => {
-            this._mem = e.detail.value;
-        });
-        this._shadow.getElementById('cpu-slider').addEventListener('slider-change', e => {
-            this._cpus = e.detail.value;
-        });
-        this._shadow.getElementById('gpu-slider').addEventListener('slider-change', e => {
-            this._gpus = e.detail.value;
-        });
+        if (this._readyData !== undefined) this._dispatch(this._readyData);
+    }
+
+    _dispatch(data) {
+        if (!this._ready) { this._readyData = data; return; }
+        this._readyData = undefined;
+
+        if (data.editing) {
+            this._title.textContent = "Edit Task";
+            this._editName = data.name;
+            this._name.value = data.name || "";
+            this._job.value = data.job || "";
+            this._gitUrl.value = data.git_url || "";
+            this._branch.value = data.branch || "";
+            this._ssh.value = data.ssh || "";
+            this._nodelist.value = data.nodelist || "";
+            if (this._memSlider) this._memSlider.value = parseInt(data.memory) || 4;
+            if (this._cpuSlider) this._cpuSlider.value = data.cpus || 1;
+            if (this._gpuSlider) this._gpuSlider.value = data.gpus || 0;
+            if (this._timeChips) this._timeChips.value = data.time || "";
+        } else {
+            this._title.textContent = "New Task";
+            this._editName = null;
+            this._name.value = "";
+            this._job.value = "";
+            this._gitUrl.value = "";
+            this._branch.value = "";
+            this._ssh.value = "";
+            this._nodelist.value = "";
+            if (this._memSlider) this._memSlider.value = 4;
+            if (this._cpuSlider) this._cpuSlider.value = 1;
+            if (this._gpuSlider) this._gpuSlider.value = 0;
+            if (this._timeChips) this._timeChips.value = "";
+        }
+
+        this._panel.classList.remove("hidden");
+        this._panel.scrollIntoView({ behavior: "smooth", block: "start" });
+        this._fetchTemplates();
+        this._fetchAutocomplete();
     }
 
     open(data) {
-        this._data = data;
-        this._editing = !!data.editing;
-        const panel = this._shadow.getElementById('panel');
-        const title = this._shadow.getElementById('title');
-        panel.classList.remove('hidden');
+        this._dispatch(data);
+    }
 
-        const tc = this._shadow.getElementById('time-chips');
-
-        if (data.editing) {
-            title.textContent = data.name;
-            this._shadow.getElementById('name').value = data.name || '';
-            this._shadow.getElementById('git-url').value = data.git_url || '';
-            this._shadow.getElementById('branch').value = data.branch || '';
-            this._shadow.getElementById('ssh').value = data.ssh || '';
-            this._shadow.getElementById('job').value = data.job || '';
-            this._shadow.getElementById('nodelist').value = data.nodelist || '';
-
-            this._mem = this._parseMemGB(data.memory) || 4;
-            this._cpus = parseInt(data.cpus) || 1;
-            this._gpus = parseInt(data.gpus) || 0;
-            this._time = data.time || '04:00:00';
-        } else {
-            title.textContent = 'New Task';
-            this._shadow.getElementById('name').value = '';
-            this._shadow.getElementById('git-url').value = '';
-            this._shadow.getElementById('branch').value = '';
-            this._shadow.getElementById('ssh').value = '';
-            this._shadow.getElementById('job').value = '';
-            this._shadow.getElementById('nodelist').value = '';
-            this._mem = 4;
-            this._cpus = 1;
-            this._gpus = 0;
-            this._time = '04:00:00';
-        }
-
-        const memSlider = this._shadow.getElementById('mem-slider');
-        memSlider.value = this._mem;
-        const cpuSlider = this._shadow.getElementById('cpu-slider');
-        cpuSlider.value = this._cpus;
-        const gpuSlider = this._shadow.getElementById('gpu-slider');
-        gpuSlider.value = this._gpus;
-        tc.value = tc.parseTime(this._time);
+    loadNodeOptions(nodes) {
+        if (!this._nodelist) return;
+        this._nodelist.innerHTML = '<option value="">any</option>';
+        this._nodelist.innerHTML += '<option value="local">local</option>';
+        nodes.forEach(n => {
+            const opt = document.createElement("option");
+            opt.value = n.name;
+            const cpus = n.ncpus || n.cpus || '?';
+            const gpus = n.ngpus || n.gpus || '?';
+            const mem = n.mem_gb || n.memory || '?';
+            opt.textContent = `${n.name} (${cpus} cpus, ${gpus} gpus, ${mem})`;
+            this._nodelist.appendChild(opt);
+        });
     }
 
     close() {
-        this._shadow.getElementById('panel').classList.add('hidden');
-        this._editing = false;
-        this._data = null;
+        this._panel.classList.add("hidden");
+        this._readyData = undefined;
     }
 
-    async loadNodeOptions(nodes) {
-        const select = this._shadow.getElementById('nodelist');
-        const current = select.value;
-        let html = '<option value="">any</option>';
-        nodes.forEach(n => {
-            const sel = n.name === current ? ' selected' : '';
-            html += `<option value="${n.name}"${sel}>${n.name} (${n.state})</option>`;
+    async _fetchTemplates() {
+        try {
+            const resp = await fetch("/api/tasks");
+            this._templates = await resp.json();
+            this._renderTemplates();
+        } catch (e) {
+            this._templates = [];
+        }
+    }
+
+    async _fetchAutocomplete() {
+        try {
+            const resp = await fetch("/api/settings");
+            const data = await resp.json();
+            this._fillDatalist("dl-git-url", data.form_history?.git_url || []);
+            this._fillDatalist("dl-branch", data.form_history?.branch || []);
+            this._fillDatalist("dl-ssh", data.form_history?.ssh || []);
+            this._fillDatalist("dl-job", data.form_history?.job || []);
+        } catch (e) { /* ignore */ }
+    }
+
+    _fillDatalist(id, values) {
+        const dl = this.$(`#${id}`);
+        if (!dl) return;
+        dl.innerHTML = values.map(v => `<option value="${v}">`).join("");
+    }
+
+    _renderTemplates() {
+        if (!this._templates.length) {
+            this._templateSection.style.display = "none";
+            return;
+        }
+        this._templateSection.style.display = "";
+        this._templateSelect.innerHTML = '<option value="">-- select a task to copy --</option>';
+        this._templates.forEach((t, i) => {
+            const opt = document.createElement("option");
+            opt.value = i;
+            opt.textContent = t.name || `task ${i + 1}`;
+            if (t.job) opt.textContent += ` (${t.job})`;
+            this._templateSelect.appendChild(opt);
         });
-        select.innerHTML = html;
-        if (current) select.value = current;
+    }
+
+    _loadFromTemplate() {
+        const idx = this._templateSelect.value;
+        if (idx === "") return;
+        const t = this._templates[parseInt(idx)];
+        if (!t) return;
+        this._name.value = t.name || "";
+        this._job.value = t.job || "";
+        this._gitUrl.value = t.git_url || "";
+        this._branch.value = t.branch || "";
+        this._ssh.value = t.ssh || "";
+        if (this._nodelist) this._nodelist.value = t.nodelist || "";
+        if (t.memory && this._memSlider) this._memSlider.value = parseInt(t.memory) || 4;
+        if (t.cpus && this._cpuSlider) this._cpuSlider.value = parseInt(t.cpus) || 1;
+        if (t.gpus !== undefined && t.gpus !== "" && this._gpuSlider) this._gpuSlider.value = parseInt(t.gpus) || 0;
+        if (t.time && this._timeChips) {
+            const parts = t.time.split(":");
+            this._timeChips.value = parseInt(parts[0]) + parseInt(parts[1] || 0) / 60;
+        }
     }
 
     async _submit() {
-        const btn = this._shadow.getElementById('submit-btn');
-        btn.disabled = true;
-        btn.textContent = '...';
+        const name = this._name.value.trim();
+        const job = this._job.value.trim();
+        const git_url = this._gitUrl.value.trim();
+        const branch = this._branch.value.trim();
+        const ssh = this._ssh.value.trim();
 
-        const name = this._shadow.getElementById('name').value.trim();
-        if (!name) {
-            btn.disabled = false;
-            btn.textContent = 'Run';
-            this.emit('config-error', { message: 'Task name is required' });
-            return;
-        }
-
-        const tc = this._shadow.getElementById('time-chips');
-        const time = tc.formatTime(tc.value);
+        if (!name) { this._name.focus(); return; }
+        if (!git_url) { this._gitUrl.focus(); return; }
 
         const payload = {
-            name,
-            git_url: this._shadow.getElementById('git-url').value.trim(),
-            branch: this._shadow.getElementById('branch').value.trim(),
-            ssh: this._shadow.getElementById('ssh').value.trim(),
-            job: this._shadow.getElementById('job').value.trim() || name,
-            memory: this._mem + 'G',
-            cpus: String(this._cpus),
-            gpus: String(this._gpus),
-            time,
-            nodelist: this._shadow.getElementById('nodelist').value.trim(),
+            name, job, git_url, branch, ssh,
+            memory: `${this._memSlider.value}G`,
+            cpus: String(this._cpuSlider.value),
+            gpus: String(this._gpuSlider.value),
+            time: this._timeChips.value,
+            nodelist: this._nodelist.value || "",
         };
 
+        this.close();
         try {
-            let resp;
-            if (this._editing) {
-                const overrides = {};
-                if (payload.nodelist) overrides.nodelist = payload.nodelist;
-                overrides.memory = payload.memory;
-                overrides.cpus = payload.cpus;
-                overrides.gpus = payload.gpus;
-                overrides.time = payload.time;
-                resp = await fetch('/api/submit', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ name, overrides }),
-                });
-            } else {
-                resp = await fetch('/api/tasks', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(payload),
-                });
-            }
+            const method = this._editName ? "PUT" : "POST";
+            const url = this._editName ? `/api/tasks/${encodeURIComponent(this._editName)}` : "/api/tasks";
+            const resp = await fetch(url, {
+                method,
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
             const data = await resp.json();
             if (resp.ok) {
-                this.emit('config-success', { message: data.message || (data.task + ': ' + data.state) });
-                this.close();
+                try {
+                    await fetch("/api/settings/history", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ git_url, branch, ssh, job }),
+                    });
+                } catch (_) {}
+                this.emit("config-success", { name: payload.name, message: data.message || `Task '${payload.name}' saved` });
             } else {
-                this.emit('config-error', { message: 'Error: ' + (data.detail || 'Unknown error') });
+                this.emit("config-error", { name: payload.name, message: data.detail || "Failed to save task" });
             }
-        } catch (err) {
-            this.emit('config-error', { message: 'Error: ' + err.message });
-        } finally {
-            btn.disabled = false;
-            btn.textContent = 'Run';
+        } catch (e) {
+            this.emit("config-error", { name: payload.name, message: e.message });
         }
-    }
-
-    _parseMemGB(s) {
-        if (!s) return 0;
-        s = s.trim().toUpperCase();
-        if (s.endsWith('G')) return parseFloat(s);
-        if (s.endsWith('M')) return Math.round(parseInt(s) / 1024) || 1;
-        return parseInt(s) || 0;
     }
 }
 
-customElements.define('config-panel', ConfigPanel);
+customElements.define("config-panel", ConfigPanel);

@@ -15,6 +15,21 @@
     </div>
 </div>
 
+<!-- Query Interval -->
+<div class="panel">
+    <div class="panel-header">
+        <h2>Cluster Query Interval</h2>
+    </div>
+    <div class="panel-body">
+        <div style="display:flex;align-items:center;gap:0.75rem">
+            <label style="font-size:0.82rem;color:var(--text-secondary)">Refresh every</label>
+            <input type="number" id="query-interval" min="2" max="300" value="10" class="input" style="width:70px">
+            <label style="font-size:0.82rem;color:var(--text-secondary)">seconds</label>
+            <button class="btn btn-sm btn-primary" id="save-interval-btn">Save</button>
+        </div>
+    </div>
+</div>
+
 <!-- Form History -->
 <div class="panel">
     <div class="panel-header">
@@ -30,7 +45,7 @@
 
 {% block scripts %}
 <script type="module">
-let settings = { ssh_hosts: [], form_history: {} };
+let settings = { ssh_hosts: [], form_history: {}, query_interval: 10 };
 
 async function loadSettings() {
     try {
@@ -39,6 +54,7 @@ async function loadSettings() {
     } catch (_) {}
     renderSshHosts();
     renderHistory();
+    renderInterval();
 }
 
 function renderSshHosts() {
@@ -48,6 +64,10 @@ function renderSshHosts() {
         return;
     }
     list.items = settings.ssh_hosts;
+}
+
+function renderInterval() {
+    document.getElementById('query-interval').value = settings.query_interval || 10;
 }
 
 function renderHistory() {
@@ -121,6 +141,14 @@ document.getElementById('ssh-list').addEventListener('settings-remove', e => {
     settings.ssh_hosts.splice(e.detail.index, 1);
     saveSettings();
     renderSshHosts();
+});
+
+document.getElementById('save-interval-btn').addEventListener('click', () => {
+    const val = parseInt(document.getElementById('query-interval').value);
+    if (val >= 2 && val <= 300) {
+        settings.query_interval = val;
+        saveSettings();
+    }
 });
 
 loadSettings();

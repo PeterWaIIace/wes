@@ -1,0 +1,9 @@
+form_history:
+  branch:
+  - Piotr/verifying-control-algorihtms
+  git_url:
+  - ssh://git@ben.ii.pw.edu.pl:9000/pwalas/swarm-gym.git
+  job:
+  - bach_example/job.sh
+  ssh:
+  - hpc
