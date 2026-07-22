@@ -1,0 +1,64 @@
+:host { display: block; }
+.tt-tile {
+    background: var(--bg, #fff);
+    border: 1px solid var(--border, #e2e4e8);
+    border-radius: var(--radius, 8px);
+    padding: 0.7rem 0.85rem;
+    cursor: pointer;
+    transition: border-color 0.12s, box-shadow 0.12s;
+    text-decoration: none;
+    color: inherit;
+    display: block;
+}
+.tt-tile:hover { border-color: var(--primary, #004a6c); box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+.tt-top {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.35rem;
+}
+.tt-name {
+    font-weight: 600;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.tt-meta { display: flex; gap: 0.5rem; margin-bottom: 0.35rem; }
+.tt-repo, .tt-branch { font-size: 0.72rem; color: var(--text-secondary, #5f6368); }
+.tt-repo { font-family: var(--mono, monospace); }
+.tt-resources {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    font-size: 0.68rem;
+    color: var(--text-muted, #9aa0a6);
+    font-family: var(--mono, monospace);
+}
+.tt-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-left: auto;
+}
+.tt-artifacts {
+    font-size: 0.65rem;
+    font-family: var(--mono, monospace);
+    color: var(--text-muted, #9aa0a6);
+    background: var(--bg-surface, #f7f8fa);
+    padding: 0.1rem 0.4rem;
+    border-radius: 99px;
+}
+.tt-edit {
+    font-size: 0.85rem;
+    padding: 0;
+    opacity: 0;
+    transition: opacity 0.12s;
+    background: none;
+    border: none;
+    color: var(--text-secondary, #5f6368);
+    cursor: pointer;
+}
+.tt-tile:hover .tt-edit { opacity: 1; }
+.tt-delete { color: var(--red, #dc2626); }
+.tt-delete:hover { opacity: 0.7 !important; }

@@ -1,0 +1,70 @@
+:host { display: block; }
+.cf-panel {
+    background: var(--bg-panel, #fff);
+    border: 1px solid var(--border, #e2e4e8);
+    border-radius: var(--radius, 8px);
+    margin-bottom: 1rem;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+.cf-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-subtle, #ececee);
+}
+.cf-header h2 { font-size: 0.82rem; font-weight: 600; }
+.cf-form { padding: 0.75rem 1rem; }
+.cf-section { margin-bottom: 1rem; }
+.cf-section > h2 {
+    font-size: 0.72rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--text-muted, #9aa0a6);
+    margin-bottom: 0.5rem; padding-bottom: 0.3rem;
+    border-bottom: 1px solid var(--border-subtle, #ececee);
+}
+.cf-resources { display: flex; flex-direction: column; gap: 0.6rem; }
+.cf-resource-row { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+.cf-field { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.cf-field label {
+    font-size: 0.68rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--text-muted, #9aa0a6);
+    display: flex; align-items: center; gap: 0.35rem;
+}
+.cf-field-node { flex: 1; min-width: 160px; max-width: 280px; }
+.cf-field-node select { width: 100%; }
+.cf-field-time { min-width: 260px; }
+.cf-select {
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--border, #e2e4e8);
+    border-radius: 5px;
+    background: var(--bg-surface, #f7f8fa);
+    color: var(--text, #1a1d21);
+    font-family: var(--mono, monospace);
+    font-size: 0.8rem;
+}
+.cf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+.cf-input {
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--border, #e2e4e8);
+    border-radius: 5px;
+    background: var(--bg-surface, #f7f8fa);
+    color: var(--text, #1a1d21);
+    font-family: var(--mono, monospace);
+    font-size: 0.8rem;
+    width: 100%;
+}
+.cf-input:focus { outline: none; border-color: var(--primary, #004a6c); box-shadow: 0 0 0 2px rgba(0,74,108,0.12); }
+.cf-actions {
+    display: flex; gap: 0.5rem; justify-content: flex-end;
+    padding-top: 0.5rem; border-top: 1px solid var(--border-subtle, #ececee);
+}
+.cf-btn {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.25rem 0.55rem; border-radius: 5px; font-weight: 500; font-size: 0.75rem;
+    border: 1px solid var(--border, #e2e4e8); background: var(--bg, #fff); color: var(--text, #1a1d21);
+    cursor: pointer; transition: all 0.12s; font-family: inherit;
+}
+.cf-btn:hover { background: var(--bg-hover, #f0f1f3); }
+.cf-btn-primary { background: var(--primary, #004a6c); border-color: var(--primary, #004a6c); color: #fff; }
+.cf-btn-primary:hover { background: var(--primary-hover, #003a56); }
+.hidden { display: none !important; }

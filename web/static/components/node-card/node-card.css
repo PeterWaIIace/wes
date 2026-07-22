@@ -1,0 +1,75 @@
+:host { display: block; }
+.nc-card {
+    background: var(--bg, #fff);
+    border: 1px solid var(--border, #e2e4e8);
+    border-radius: var(--radius, 8px);
+    padding: 0.6rem 0.75rem;
+    cursor: pointer;
+    transition: all 0.12s;
+    position: relative;
+}
+.nc-card:hover { border-color: var(--primary, #004a6c); box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+.nc-card.selected {
+    border-color: var(--primary, #004a6c);
+    box-shadow: 0 0 0 2px rgba(0,74,108,0.18);
+}
+.nc-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.2rem;
+}
+.nc-name {
+    font-family: var(--mono, monospace);
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+.nc-count {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--primary, #004a6c);
+    background: var(--primary-light, #e8f0f5);
+    padding: 0.1rem 0.4rem;
+    border-radius: 99px;
+}
+.nc-state {
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-muted, #9aa0a6);
+    letter-spacing: 0.03em;
+}
+.nc-cap { display: flex; flex-direction: column; gap: 0.2rem; margin-top: 0.35rem; }
+.nc-cap-row { display: flex; align-items: center; gap: 0.35rem; }
+.nc-cap-label {
+    width: 2rem;
+    font-size: 0.6rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-muted, #9aa0a6);
+}
+.nc-cap-bar {
+    flex: 1;
+    height: 4px;
+    background: var(--bg-surface, #f7f8fa);
+    border-radius: 2px;
+    overflow: hidden;
+}
+.nc-cap-bar-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+.nc-cap-bar-fill.cpu { background: var(--primary, #004a6c); }
+.nc-cap-bar-fill.gpu { background: var(--purple, #7c3aed); }
+.nc-cap-bar-fill.mem { background: var(--green, #0d9488); }
+.nc-cap-text {
+    font-size: 0.6rem;
+    font-family: var(--mono, monospace);
+    color: var(--text-muted, #9aa0a6);
+    min-width: 3.2rem;
+    text-align: right;
+}
+.nc-meta { font-size: 0.68rem; color: var(--text-muted, #9aa0a6); }
+.nc-partition { font-size: 0.6rem; color: var(--text-muted, #9aa0a6); margin-top: 0.2rem; }
+:host(.ns-idle) .nc-card { border-left: 3px solid var(--green, #0d9488); }
+:host(.ns-alloc) .nc-card { border-left: 3px solid var(--red, #dc2626); }
+:host(.ns-mix) .nc-card { border-left: 3px solid var(--yellow, #d97706); }
+:host(.ns-other) .nc-card { border-left: 3px solid var(--border, #e2e4e8); }

@@ -14,6 +14,7 @@
         <div class="nav-links">
             <a href="/" class="{% if active_page == 'dashboard' %}active{% endif %}">Dashboard</a>
             <a href="/slurm" class="{% if active_page == 'slurm' %}active{% endif %}">SLURM</a>
+            <a href="/settings" class="{% if active_page == 'settings' %}active{% endif %}">Settings</a>
         </div>
         <div class="nav-spacer"></div>
     </nav>
@@ -41,7 +42,7 @@
             {% block content %}{% endblock %}
         </div>
     </div>
-    <script src="/static/app.js"></script>
+    <script type="module" src="/static/components/index.js"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

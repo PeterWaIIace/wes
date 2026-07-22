@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 from shutil import get_terminal_size
 
@@ -46,6 +47,7 @@ class Task:
         memory: str = "",
         time: str = "",
         nodelist: str = "",
+        run_id: str = "",
     ) -> None:
         self.name = name
         self.ssh_config = ssh_config
@@ -65,9 +67,16 @@ class Task:
         self.memory = memory
         self.time = time
         self.nodelist = nodelist
+        self.run_id = run_id or f"{name}-{uuid.uuid4().hex[:8]}"
+
+    @property
+    def _run_dir(self) -> str:
+        return f"runs/{self.run_id}"
 
     def execute(self) -> State:
         if self.status == State.PENDING:
+            self.__create_run_dir()
+            self.__clone_repository()
             self.__scp_to(self.job)
             self.status = self.execute_remote_job()
         elif self.status == State.RUNNING:
@@ -80,8 +89,7 @@ class Task:
             self.jobs_ids = []
             self.__execute_post_script()
             self.__sync_artifacts()
-            if self.cleanup_git:
-                self.__cleanup_repository()
+            self.__cleanup_run_dir()
         return self.status
 
     def execute_remote_job(self) -> State:
@@ -106,40 +114,40 @@ class Task:
             parts.append(f"--nodelist={self.nodelist}")
         return " ".join(parts)
 
-    def __cleanup_repository(self) -> None:
-        repo_name = self.git_url.split("/")[-1].replace(".git", "")
+    def __create_run_dir(self) -> None:
+        self._log(f"creating run dir {self._run_dir}", "▶")
         subprocess.run(
-            ["ssh", self.ssh_config, "rm", "-rf", repo_name],
-            capture_output=True,
-            text=True,
-            check=True,
+            ["ssh", self.ssh_config, f"mkdir -p {self._run_dir}"],
+            capture_output=True, text=True, check=True,
+        )
+
+    def __cleanup_run_dir(self) -> None:
+        self._log(f"cleaning up {self._run_dir}", "▶")
+        subprocess.run(
+            ["ssh", self.ssh_config, f"rm -rf {self._run_dir}"],
+            capture_output=True, text=True, check=False,
         )
 
     def __clone_repository(self) -> None:
         git_name = self.git_url.split("/")[-1].replace(".git", "")
+        run_dir = self._run_dir
         if self.branch:
-            update_cmd = (
-                f"cd {git_name} && git fetch origin && git reset --hard origin/{self.branch}"
-            )
-            clone_cmd = f"git clone -b {self.branch} {self.git_url}"
+            clone_cmd = f"git clone -b {self.branch} {self.git_url} {run_dir}/{git_name}"
         else:
-            update_cmd = f"cd {git_name} && git pull --ff-only"
-            clone_cmd = f"git clone {self.git_url}"
-        cmd = f"if [ -d {git_name}/.git ]; then {update_cmd}; else {clone_cmd}; fi"
+            clone_cmd = f"git clone {self.git_url} {run_dir}/{git_name}"
         subprocess.run(
-            ["ssh", self.ssh_config, cmd],
-            capture_output=True,
-            text=True,
-            check=True,
+            ["ssh", self.ssh_config, clone_cmd],
+            capture_output=True, text=True, check=True,
         )
 
     def __scp_to(self, file: str | None, r: bool = False) -> None:
         if not file:
             self._log("no file specified for SCP", "⚠")
             return
-        cmd = ["scp", file, f"{self.ssh_config}:{self.path}"]
+        dest = f"{self.ssh_config}:{self._run_dir}/"
+        cmd = ["scp", file, dest]
         if r:
-            cmd = ["scp", "-r", file, f"{self.ssh_config}:{self.path}"]
+            cmd = ["scp", "-r", file, dest]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         if result.stdout:
             print(result.stdout, end="")
@@ -149,15 +157,16 @@ class Task:
             parts = artifact.split("/")
             path = parts[0]
             tfile = "/".join(parts[1:])
-            dest = Path("results") / self.name / path
+            dest = Path("results") / self.name / self.run_id / path
             dest.mkdir(parents=True, exist_ok=True)
-            self.__scp_from(path, tfile + "/.", str(dest), r=True)
+            remote = f"{self._run_dir}/{path}"
+            self.__scp_from(remote, tfile + "/.", str(dest), r=True)
 
-    def __scp_from(self, path: str, tfile: str, cfile: str, r: bool = False) -> None:
+    def __scp_from(self, remote_path: str, tfile: str, cfile: str, r: bool = False) -> None:
         if not tfile or not cfile:
             print("No file specified for SCP", file=sys.stderr)
             return
-        src = f"{self.ssh_config}:~/{path}/{tfile}"
+        src = f"{self.ssh_config}:{remote_path}/{tfile}"
         cmd = ["rsync", "-e", "ssh", src, cfile]
         if r:
             cmd = ["rsync", "-r", "--no-inc-recursive", "-e", "ssh", src, cfile]
@@ -183,9 +192,7 @@ class Task:
         )
 
     def __execute_job(self) -> State:
-        self._log("cloning repository", "▶")
-        self.__clone_repository()
-        self._log("submitting job via sbatch", "▶")
+        self._log(f"submitting job ({self.run_id}) via sbatch", "▶")
         script_lines: list[str] = []
         for frun in self.run:
             try:
@@ -201,16 +208,18 @@ class Task:
             self._log("no job script specified", "✗")
             return State.FAILED
         overrides = self._sbatch_overrides()
-        sbatch_cmd = "sbatch --parsable"
+        sbatch_cmd = f"sbatch --parsable --job-name={self.run_id}"
         if overrides:
             sbatch_cmd += f" {overrides}"
-        sbatch_cmd += f" {Path(self.path, Path(self.job).name)}"
+        git_name = self.git_url.split("/")[-1].replace(".git", "")
+        job_path = f"{git_name}/{self.path}/{Path(self.job).name}"
+        sbatch_cmd += f" {job_path}"
         script_lines.append(sbatch_cmd)
         full_script = "exec > pre_run_output.txt 2>&1\n" + "\n".join(script_lines)
 
         try:
             result = subprocess.run(
-                ["ssh", self.ssh_config, "bash -ls"],
+                ["ssh", self.ssh_config, f"cd {self._run_dir} && bash -ls"],
                 input=full_script,
                 capture_output=True,
                 text=True,
@@ -263,15 +272,15 @@ class Task:
         return State.RUNNING
 
     def __fetch_output(self, remote_file: str) -> None:
-        local_dir = Path("results") / self.name
+        local_dir = Path("results") / self.name / self.run_id
         local_dir.mkdir(parents=True, exist_ok=True)
         local_path = local_dir / remote_file
-        self.__scp_from("", remote_file, str(local_path), r=True)
+        self.__scp_from(self._run_dir, remote_file, str(local_path), r=True)
 
     def __check_pre_run(self) -> None:
         self.__fetch_output("pre_run_output.txt")
         result = subprocess.run(
-            ["ssh", self.ssh_config, "cat pre_run_output.txt"],
+            ["ssh", self.ssh_config, f"cat {self._run_dir}/pre_run_output.txt"],
             text=True,
             capture_output=True,
         )
@@ -284,7 +293,7 @@ class Task:
     def __check_stdout(self) -> None:
         self.__fetch_output("job_output.txt")
         result = subprocess.run(
-            ["ssh", self.ssh_config, "cat job_output.txt"],
+            ["ssh", self.ssh_config, f"cat {self._run_dir}/job_output.txt"],
             text=True,
             capture_output=True,
         )
@@ -297,7 +306,7 @@ class Task:
     def __check_stderr(self) -> None:
         self.__fetch_output("job_error.txt")
         result = subprocess.run(
-            ["ssh", self.ssh_config, "cat job_error.txt"],
+            ["ssh", self.ssh_config, f"cat {self._run_dir}/job_error.txt"],
             text=True,
             capture_output=True,
         )

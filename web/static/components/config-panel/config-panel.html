@@ -1,0 +1,48 @@
+<div class="cf-panel hidden" id="panel">
+    <div class="cf-header">
+        <h2 id="title">New Task</h2>
+        <button class="cf-btn" id="close-btn">&#x2715; Close</button>
+    </div>
+    <div class="cf-form">
+        <div class="cf-section">
+            <h2>SLURM Resources</h2>
+            <div class="cf-resources">
+                <div class="cf-resource-row">
+                    <div class="cf-field cf-field-node">
+                        <label>Node</label>
+                        <select id="nodelist" class="cf-select">
+                            <option value="">any</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="cf-resource-row">
+                    <resource-slider id="mem-slider" label="Memory" min="1" max="128" value="4" suffix="G" color="mem"></resource-slider>
+                    <resource-slider id="cpu-slider" label="CPUs" min="1" max="64" value="1" suffix="" color="cpu"></resource-slider>
+                    <resource-slider id="gpu-slider" label="GPUs" min="0" max="8" value="0" suffix="" color="gpu"></resource-slider>
+                </div>
+                <div class="cf-resource-row">
+                    <div class="cf-field cf-field-time">
+                        <label>Time</label>
+                        <time-chips id="time-chips"></time-chips>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="cf-section">
+            <h2>Job</h2>
+            <div class="cf-grid">
+                <div class="cf-field"><label>Name</label><input type="text" id="name" class="cf-input" placeholder="my-task"></div>
+                <div class="cf-field"><label>Job Command</label><input type="text" id="job" class="cf-input" placeholder="bash run.sh"></div>
+                <div class="cf-field"><label>Git URL</label><input type="text" id="git-url" class="cf-input" placeholder="https://github.com/..."></div>
+                <div class="cf-field"><label>Branch</label><input type="text" id="branch" class="cf-input" placeholder="main"></div>
+                <div class="cf-field"><label>SSH</label><input type="text" id="ssh" class="cf-input" placeholder="ssh config host"></div>
+            </div>
+        </div>
+
+        <div class="cf-actions">
+            <button class="cf-btn" id="cancel-btn">Cancel</button>
+            <button class="cf-btn cf-btn-primary" id="submit-btn">Run</button>
+        </div>
+    </div>
+</div>

@@ -6,6 +6,7 @@ import logging
 import re
 from pathlib import Path
 
+import yaml
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
@@ -268,13 +269,54 @@ def submit_run(req: RunRequest) -> dict:
 
 
 @router.delete("/tasks/{name}")
-def delete_task(name: str) -> dict:
+def delete_task(name: str, remove_config: bool = True) -> dict:
+    """Remove a task: cancel jobs, clean up remote dirs, remove cache + config."""
+    import subprocess as _subprocess
+
     cache = JobCache(persistent=True)
+    messages: list[str] = []
     try:
-        cache.remove(name)
+        data = cache.get_all().get(name)
+        if data:
+            task = JobCache.cached_task(name, data)
+            if task.jobs_ids and task.ssh_config:
+                for jid in task.jobs_ids:
+                    try:
+                        _subprocess.run(
+                            ["ssh", task.ssh_config, f"scancel {jid}"],
+                            capture_output=True, text=True, check=False,
+                        )
+                        messages.append(f"cancelled job {jid}")
+                    except Exception:
+                        pass
+                if task.run_id and task.ssh_config:
+                    try:
+                        _subprocess.run(
+                            ["ssh", task.ssh_config, f"rm -rf runs/{task.run_id}"],
+                            capture_output=True, text=True, check=False,
+                        )
+                        messages.append(f"removed runs/{task.run_id}")
+                    except Exception:
+                        pass
+            cache.remove(name)
+            messages.append("removed from cache")
     finally:
         cache.close()
-    return {"status": "ok"}
+
+    if remove_config:
+        wes_path = Path(name + ".wes")
+        if wes_path.exists():
+            wes_path.unlink()
+            messages.append(f"deleted {wes_path}")
+
+    local_results = Path("results") / name
+    if local_results.exists():
+        import shutil
+        shutil.rmtree(local_results, ignore_errors=True)
+        messages.append("removed local results")
+
+    msg = "; ".join(messages) if messages else f"task '{name}' not found"
+    return {"status": "ok", "message": msg}
 
 
 @router.get("/nodes", response_model=ClusterData)
@@ -526,8 +568,6 @@ def create_task(req: CreateTaskRequest) -> dict:
     """Create a new task: generate .wes config, parse, and execute."""
     import subprocess
 
-    import yaml
-
     from wes.parser import WESParser
 
     name = req.name.strip()
@@ -569,6 +609,8 @@ def create_task(req: CreateTaskRequest) -> dict:
         wes_path.write_text(yaml.dump(config, default_flow_style=False), encoding="utf-8")
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"Failed to write config: {e}") from e
+
+    record_form_history(task_data)
 
     has_required = all(task_data.get(f) for f in ("git_url", "ssh", "job"))
     if not has_required:
@@ -633,3 +675,57 @@ def generate_slurm(spec: SlurmJobSpec) -> SlurmJobResponse:
         script_path=spec.script_path,
     )
     return SlurmJobResponse(script=job.to_script(), args=job.sbatch_args())
+
+
+_SETTINGS_FILE = ".wes-settings.yml"
+_MAX_HISTORY = 20
+
+
+def _load_settings() -> dict:
+    path = Path(_SETTINGS_FILE)
+    if path.exists():
+        with open(path, encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    return {}
+
+
+def _save_settings(data: dict) -> None:
+    with open(_SETTINGS_FILE, "w", encoding="utf-8") as f:
+        yaml.dump(data, f, default_flow_style=False)
+
+
+@router.get("/settings", response_model=SettingsData)
+def get_settings() -> SettingsData:
+    data = _load_settings()
+    return SettingsData(
+        ssh_hosts=data.get("ssh_hosts", []),
+        form_history=data.get("form_history", {}),
+    )
+
+
+@router.put("/settings")
+def update_settings(req: SettingsData) -> dict:
+    _save_settings({
+        "ssh_hosts": req.ssh_hosts,
+        "form_history": req.form_history,
+    })
+    return {"status": "ok"}
+
+
+@router.post("/settings/history")
+def record_form_history(entry: dict) -> dict:
+    """Record form field values for autocomplete suggestions."""
+    data = _load_settings()
+    history: dict[str, list[str]] = data.get("form_history", {})
+    for key in ("git_url", "ssh", "branch", "job"):
+        val = entry.get(key, "").strip()
+        if not val:
+            continue
+        lst = history.setdefault(key, [])
+        if val in lst:
+            lst.remove(val)
+        lst.insert(0, val)
+        history[key] = lst[:_MAX_HISTORY]
+    data["form_history"] = history
+    _save_settings(data)
+    return {"status": "ok"}

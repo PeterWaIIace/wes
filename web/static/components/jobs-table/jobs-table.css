@@ -1,0 +1,29 @@
+:host { display: block; }
+.jt-wrap { max-height: 350px; overflow-y: auto; }
+.jt-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.jt-table th {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted, #9aa0a6);
+    border-bottom: 1px solid var(--border, #e2e4e8);
+    background: var(--bg-surface, #f7f8fa);
+    position: sticky;
+    top: 0;
+    white-space: nowrap;
+}
+.jt-table td {
+    padding: 0.45rem 0.75rem;
+    border-bottom: 1px solid var(--border-subtle, #ececee);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+.jt-table tr:hover td { background: var(--bg-hover, #f0f1f3); }
+.jt-table .mono { font-family: var(--mono, monospace); font-size: 0.78rem; }
+.jt-table .jt-name { font-weight: 500; max-width: 250px; }
+.jt-empty { text-align: center; color: var(--text-muted, #9aa0a6); padding: 1.5rem; font-size: 0.85rem; }

@@ -59,3 +59,11 @@ def slurm_page(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
         request, "slurm.html", {"tasks": tasks, "active_page": "slurm"}
     )
+
+
+@router.get("/settings", response_class=HTMLResponse)
+def settings_page(request: Request) -> HTMLResponse:
+    tasks = list_tasks()
+    return templates.TemplateResponse(
+        request, "settings.html", {"tasks": tasks, "active_page": "settings"}
+    )

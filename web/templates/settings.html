@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}wes - Settings{% endblock %}
+
+{% block content %}
+<h1>Settings</h1>
+
+<!-- SSH Hosts -->
+<div class="panel">
+    <div class="panel-header">
+        <h2>SSH Hosts</h2>
+        <button class="btn btn-sm btn-primary" id="add-ssh-btn">+ Add</button>
+    </div>
+    <div class="panel-body">
+        <settings-list id="ssh-list">No SSH hosts configured</settings-list>
+    </div>
+</div>
+
+<!-- Form History -->
+<div class="panel">
+    <div class="panel-header">
+        <h2>Recent Values</h2>
+        <button class="btn btn-sm" id="clear-history-btn">Clear All</button>
+    </div>
+    <div class="panel-body">
+        <div id="history-sections"></div>
+        <div id="history-empty" class="empty-state" style="display:none">No history yet</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module">
+let settings = { ssh_hosts: [], form_history: {} };
+
+async function loadSettings() {
+    try {
+        const resp = await fetch('/api/settings');
+        settings = await resp.json();
+    } catch (_) {}
+    renderSshHosts();
+    renderHistory();
+}
+
+function renderSshHosts() {
+    const list = document.getElementById('ssh-list');
+    if (!settings.ssh_hosts.length) {
+        list.items = [];
+        return;
+    }
+    list.items = settings.ssh_hosts;
+}
+
+function renderHistory() {
+    const container = document.getElementById('history-sections');
+    const empty = document.getElementById('history-empty');
+    const keys = Object.keys(settings.form_history);
+    if (!keys.length) {
+        container.innerHTML = '';
+        empty.style.display = '';
+        return;
+    }
+    empty.style.display = 'none';
+    const labels = { git_url: 'Git URLs', ssh: 'SSH Hosts', branch: 'Branches', job: 'Job Commands' };
+    let html = '';
+    keys.forEach(key => {
+        const vals = settings.form_history[key];
+        if (!vals || !vals.length) return;
+        html += '<div class="settings-section">';
+        html += '<h3>' + (labels[key] || key) + '</h3>';
+        html += '<div class="settings-list">';
+        vals.forEach((v, i) => {
+            html += '<div class="settings-item">';
+            html += '<span class="mono">' + v + '</span>';
+            html += '<button class="btn-ghost" data-key="' + key + '" data-index="' + i + '" title="Remove">&#x2715;</button>';
+            html += '</div>';
+        });
+        html += '</div></div>';
+    });
+    container.innerHTML = html;
+    container.querySelectorAll('.btn-ghost').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const key = btn.dataset.key;
+            const i = parseInt(btn.dataset.index);
+            settings.form_history[key].splice(i, 1);
+            if (!settings.form_history[key].length) delete settings.form_history[key];
+            saveSettings();
+            renderHistory();
+        });
+    });
+}
+
+async function saveSettings() {
+    try {
+        await fetch('/api/settings', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(settings),
+        });
+    } catch (_) {}
+}
+
+document.getElementById('add-ssh-btn').addEventListener('click', () => {
+    const host = prompt('SSH host name or config alias:');
+    if (!host || !host.trim()) return;
+    const val = host.trim();
+    if (!settings.ssh_hosts.includes(val)) {
+        settings.ssh_hosts.push(val);
+        saveSettings();
+    }
+    renderSshHosts();
+});
+
+document.getElementById('clear-history-btn').addEventListener('click', () => {
+    if (!confirm('Clear all form history?')) return;
+    settings.form_history = {};
+    saveSettings();
+    renderHistory();
+});
+
+document.getElementById('ssh-list').addEventListener('settings-remove', e => {
+    settings.ssh_hosts.splice(e.detail.index, 1);
+    saveSettings();
+    renderSshHosts();
+});
+
+loadSettings();
+</script>
+{% endblock %}

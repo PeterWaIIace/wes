@@ -714,6 +714,9 @@ nav {
     padding: 0.7rem 0.85rem;
     cursor: pointer;
     transition: border-color 0.12s, box-shadow 0.12s;
+    text-decoration: none;
+    color: inherit;
+    display: block;
 }
 .task-tile:hover { border-color: var(--primary); box-shadow: var(--shadow-sm); }
 .task-tile-top {
@@ -759,6 +762,29 @@ nav {
 .task-tile-add:hover { color: var(--primary); border-color: var(--primary); }
 .task-tile-add-icon { font-size: 1.6rem; line-height: 1; }
 .task-tile-add-label { font-size: 0.75rem; margin-top: 0.25rem; }
+.task-tile-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-left: auto;
+}
+.task-tile-artifacts {
+    font-size: 0.65rem;
+    font-family: var(--mono);
+    color: var(--text-muted);
+    background: var(--bg-surface);
+    padding: 0.1rem 0.4rem;
+    border-radius: 99px;
+}
+.task-tile-edit {
+    font-size: 0.85rem;
+    padding: 0;
+    opacity: 0;
+    transition: opacity 0.12s;
+}
+.task-tile:hover .task-tile-edit { opacity: 1; }
+.task-tile-delete { color: var(--red); }
+.task-tile-delete:hover { opacity: 0.7 !important; }
 
 /* ===== INLINE CONFIG FORM ===== */
 .config-form { padding: 0.75rem 1rem; }

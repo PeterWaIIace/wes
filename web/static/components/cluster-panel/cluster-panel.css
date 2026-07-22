@@ -1,0 +1,54 @@
+:host { display: block; margin-bottom: 1rem; }
+.cp-panel {
+    background: var(--bg-panel, #fff);
+    border: 1px solid var(--border, #e2e4e8);
+    border-radius: var(--radius, 8px);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+.cp-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-subtle, #ececee);
+}
+.cp-header h2 { font-size: 0.82rem; font-weight: 600; color: var(--text, #1a1d21); }
+.cp-meta { font-size: 0.75rem; color: var(--text-muted, #9aa0a6); }
+.cp-bar { display: flex; align-items: center; gap: 0.5rem; padding: 0.65rem 1rem; }
+.cp-bar label { font-size: 0.8rem; font-weight: 600; color: var(--text-secondary, #5f6368); }
+.cp-input {
+    padding: 0.35rem 0.65rem;
+    border: 1px solid var(--border, #e2e4e8);
+    border-radius: 5px;
+    background: var(--bg, #fff);
+    color: var(--text, #1a1d21);
+    font-size: 0.82rem;
+    width: 180px;
+}
+.cp-input:focus { outline: none; border-color: var(--primary, #004a6c); box-shadow: 0 0 0 2px rgba(0,74,108,0.12); }
+.cp-status { font-size: 0.78rem; color: var(--text-muted, #9aa0a6); margin-left: 0.5rem; }
+.cp-btn {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.25rem 0.55rem; border-radius: 5px; font-weight: 500; font-size: 0.75rem;
+    border: 1px solid var(--border, #e2e4e8); background: var(--bg, #fff); color: var(--text, #1a1d21);
+    cursor: pointer; transition: all 0.12s; font-family: inherit;
+}
+.cp-btn:hover { background: var(--bg-hover, #f0f1f3); }
+.cp-btn-primary { background: var(--primary, #004a6c); border-color: var(--primary, #004a6c); color: #fff; }
+.cp-btn-primary:hover { background: var(--primary-hover, #003a56); }
+.cp-node-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+    gap: 0.5rem;
+    padding: 0.75rem 1rem 1rem;
+}
+.cp-body { padding: 1rem; }
+.cp-body.flush { padding: 0; }
+.cp-error {
+    padding: 0.6rem 0.85rem;
+    background: var(--red-light, #fee2e2);
+    color: var(--red, #dc2626);
+    border-radius: 5px;
+    font-size: 0.82rem;
+    margin: 0 1rem 0.75rem;
+}

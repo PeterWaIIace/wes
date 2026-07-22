@@ -68,6 +68,7 @@ class JobCache:
             "memory": task.memory,
             "time": task.time,
             "nodelist": task.nodelist,
+            "run_id": task.run_id,
         }
 
     @staticmethod
@@ -91,4 +92,5 @@ class JobCache:
             memory=data.get("memory", ""),
             time=data.get("time", ""),
             nodelist=data.get("nodelist", ""),
+            run_id=data.get("run_id", ""),
         )

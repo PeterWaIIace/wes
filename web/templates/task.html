@@ -23,24 +23,10 @@
     </div>
 </div>
 
-<!-- Logs Panel -->
-<div class="panel">
-    <div class="panel-header">
-        <h2>Logs</h2>
-        <div class="tab-bar">
-            <button class="tab active" onclick="showTab('stdout', this)">stdout</button>
-            <button class="tab" onclick="showTab('stderr', this)">stderr</button>
-            <button class="tab" onclick="showTab('pre_run', this)">pre-run</button>
-        </div>
-    </div>
-    <div class="panel-body">
-        <div id="log-stdout" class="log-box">{{ logs.stdout or '(empty)' }}</div>
-        <div id="log-stderr" class="log-box hidden">{{ logs.stderr or '(empty)' }}</div>
-        <div id="log-pre_run" class="log-box hidden">{{ logs.pre_run or '(empty)' }}</div>
-    </div>
-</div>
+<log-viewer id="log-viewer">
+    <span slot="default">Logs</span>
+</log-viewer>
 
-<!-- Progress Panel -->
 {% if progress.columns %}
 <div class="panel">
     <div class="panel-header">
@@ -54,153 +40,78 @@
 </div>
 {% endif %}
 
-<!-- Artifacts Panel -->
-<div class="panel">
-    <div class="panel-header">
-        <h2>Artifacts</h2>
-        <button class="btn btn-sm" onclick="refreshArtifacts()">Refresh</button>
-    </div>
-
-    {% set videos = artifacts|selectattr('kind', 'equalto', 'video')|list %}
-    {% set models = artifacts|selectattr('kind', 'equalto', 'model')|list %}
-    {% set csvs = artifacts|selectattr('kind', 'equalto', 'csv')|list %}
-    {% set images = artifacts|selectattr('kind', 'equalto', 'image')|list %}
-
-    {% if videos %}
-    <div class="panel-header" style="border-bottom:none">
-        <h2>Videos</h2>
-        <span class="panel-meta">{{ videos|length }}</span>
-    </div>
-    <div class="panel-body">
-        <div class="video-grid">
-            {% for v in videos|reverse %}
-            <div class="video-item">
-                <video controls preload="metadata">
-                    <source src="/api/tasks/{{ task.name }}/artifacts/{{ v.path }}" type="video/mp4">
-                </video>
-                <div class="video-label">{{ v.name }}</div>
-            </div>
-            {% endfor %}
-        </div>
-    </div>
-    {% endif %}
-
-    {% if models %}
-    <div class="panel-header" style="border-bottom:none">
-        <h2>Models</h2>
-        <span class="panel-meta">{{ models|length }}</span>
-    </div>
-    <div class="panel-body flush">
-        <div class="model-list">
-            {% for m in models|reverse %}
-            <div class="model-item">
-                <a href="/api/tasks/{{ task.name }}/artifacts/{{ m.path }}" download>{{ m.name }}</a>
-                <span class="size">{{ (m.size / 1024 / 1024)|round(1) }} MB</span>
-            </div>
-            {% endfor %}
-        </div>
-    </div>
-    {% endif %}
-
-    {% if images %}
-    <div class="panel-header" style="border-bottom:none">
-        <h2>Images</h2>
-        <span class="panel-meta">{{ images|length }}</span>
-    </div>
-    <div class="panel-body">
-        <div class="image-grid">
-            {% for img in images %}
-            <div class="image-item">
-                <img src="/api/tasks/{{ task.name }}/artifacts/{{ img.path }}" alt="{{ img.name }}" loading="lazy">
-            </div>
-            {% endfor %}
-        </div>
-    </div>
-    {% endif %}
-
-    {% if csvs %}
-    <div class="panel-header" style="border-bottom:none">
-        <h2>Data Files</h2>
-        <span class="panel-meta">{{ csvs|length }}</span>
-    </div>
-    <div class="panel-body flush">
-        <div class="model-list">
-            {% for c in csvs %}
-            <div class="model-item">
-                <a href="/api/tasks/{{ task.name }}/artifacts/{{ c.path }}">{{ c.name }}</a>
-                <span class="size">{{ (c.size / 1024)|round(1) }} KB</span>
-            </div>
-            {% endfor %}
-        </div>
-    </div>
-    {% endif %}
-
-    {% if not artifacts %}
-    <div class="panel-body"><p class="empty">No artifacts found</p></div>
-    {% endif %}
-</div>
+<artifact-list id="artifact-list"></artifact-list>
 {% endblock %}
 
 {% block scripts %}
-<script>
-function showTab(name, btn) {
-    document.querySelectorAll('.log-box').forEach(el => el.classList.add('hidden'));
-    document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
-    document.getElementById('log-' + name).classList.remove('hidden');
-    btn.classList.add('active');
-}
+<script type="module">
+const logViewer = document.getElementById('log-viewer');
+logViewer.tabs = [
+    { name: 'stdout', label: 'stdout' },
+    { name: 'stderr', label: 'stderr' },
+    { name: 'pre_run', label: 'pre-run' },
+];
+logViewer.setLogs('stdout', {{ logs.stdout|tojson|safe }});
+logViewer.setLogs('stderr', {{ logs.stderr|tojson|safe }});
+logViewer.setLogs('pre_run', {{ logs.pre_run|tojson|safe }});
 
-async function refreshArtifacts() {
-    const resp = await fetch('/api/tasks/{{ task.name }}/refresh', { method: 'POST' });
+const artifactList = document.getElementById('artifact-list');
+const allArtifacts = {{ artifacts|tojson|safe }};
+const taskName = {{ task.name|tojson|safe }};
+artifactList.data = allArtifacts.map(a => ({
+    ...a,
+    url: '/api/tasks/' + taskName + '/artifacts/' + a.path,
+    sizeLabel: a.kind === 'model' ? (a.size / 1024 / 1024).toFixed(1) + ' MB' : (a.size / 1024).toFixed(1) + ' KB',
+}));
+artifactList.addEventListener('artifacts-refresh', async () => {
+    const resp = await fetch('/api/tasks/' + taskName + '/refresh', { method: 'POST' });
     const data = await resp.json();
     alert(data.message || 'Refreshed');
     location.reload();
-}
+});
 
 {% if progress.columns %}
-(function() {
-    const columns = {{ progress.columns|tojson }};
-    const rows = {{ progress.rows|tojson }};
-    const timestepsCol = columns.indexOf('time/total_timesteps');
-    const rewardCol = columns.indexOf('eval/reward');
-    const actorCol = columns.indexOf('train/actor_loss');
-    const criticCol = columns.indexOf('train/critic_loss');
-    const labels = [], rewardData = [], actorData = [], criticData = [];
-    rows.forEach(row => {
-        const ts = parseFloat(row[timestepsCol]);
-        if (isNaN(ts)) return;
-        labels.push(ts);
-        rewardData.push(parseFloat(row[rewardCol]) || null);
-        actorData.push(parseFloat(row[actorCol]) || null);
-        criticData.push(parseFloat(row[criticCol]) || null);
-    });
-    const datasets = [];
-    if (rewardData.some(v => v !== null)) datasets.push({ label: 'Reward', data: rewardData, borderColor: '#0d9488', tension: 0.3, yAxisID: 'y' });
-    if (actorData.some(v => v !== null)) datasets.push({ label: 'Actor Loss', data: actorData, borderColor: '#4a90d9', tension: 0.3, yAxisID: 'y1' });
-    if (criticData.some(v => v !== null)) datasets.push({ label: 'Critic Loss', data: criticData, borderColor: '#d97706', tension: 0.3, yAxisID: 'y1' });
-    if (datasets.length > 0) {
-        const script = document.createElement('script');
-        script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
-        script.onload = function() {
-            new Chart(document.getElementById('progress-chart').getContext('2d'), {
-                type: 'line',
-                data: { labels, datasets },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: { mode: 'index', intersect: false },
-                    scales: {
-                        x: { title: { display: true, text: 'Timesteps', color: '#9aa0a6' }, ticks: { color: '#9aa0a6' }, grid: { color: '#ececee' } },
-                        y: { position: 'left', title: { display: true, text: 'Reward', color: '#9aa0a6' }, ticks: { color: '#9aa0a6' }, grid: { color: '#ececee' } },
-                        y1: { position: 'right', title: { display: true, text: 'Loss', color: '#9aa0a6' }, ticks: { color: '#9aa0a6' }, grid: { drawOnChartArea: false } }
-                    },
-                    plugins: { legend: { labels: { color: '#5f6368', usePointStyle: true, pointStyle: 'circle' } } }
-                }
-            });
-        };
-        document.head.appendChild(script);
-    }
-})();
+const columns = {{ progress.columns|tojson|safe }};
+const rows = {{ progress.rows|tojson|safe }};
+const timestepsCol = columns.indexOf('time/total_timesteps');
+const rewardCol = columns.indexOf('eval/reward');
+const actorCol = columns.indexOf('train/actor_loss');
+const criticCol = columns.indexOf('train/critic_loss');
+const labels = [], rewardData = [], actorData = [], criticData = [];
+rows.forEach(row => {
+    const ts = parseFloat(row[timestepsCol]);
+    if (isNaN(ts)) return;
+    labels.push(ts);
+    rewardData.push(parseFloat(row[rewardCol]) || null);
+    actorData.push(parseFloat(row[actorCol]) || null);
+    criticData.push(parseFloat(row[criticCol]) || null);
+});
+const datasets = [];
+if (rewardData.some(v => v !== null)) datasets.push({ label: 'Reward', data: rewardData, borderColor: '#0d9488', tension: 0.3, yAxisID: 'y' });
+if (actorData.some(v => v !== null)) datasets.push({ label: 'Actor Loss', data: actorData, borderColor: '#4a90d9', tension: 0.3, yAxisID: 'y1' });
+if (criticData.some(v => v !== null)) datasets.push({ label: 'Critic Loss', data: criticData, borderColor: '#d97706', tension: 0.3, yAxisID: 'y1' });
+if (datasets.length > 0) {
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+    script.onload = function() {
+        new Chart(document.getElementById('progress-chart').getContext('2d'), {
+            type: 'line',
+            data: { labels, datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                scales: {
+                    x: { title: { display: true, text: 'Timesteps', color: '#9aa0a6' }, ticks: { color: '#9aa0a6' }, grid: { color: '#ececee' } },
+                    y: { position: 'left', title: { display: true, text: 'Reward', color: '#9aa0a6' }, ticks: { color: '#9aa0a6' }, grid: { color: '#ececee' } },
+                    y1: { position: 'right', title: { display: true, text: 'Loss', color: '#9aa0a6' }, ticks: { color: '#9aa0a6' }, grid: { drawOnChartArea: false } }
+                },
+                plugins: { legend: { labels: { color: '#5f6368', usePointStyle: true, pointStyle: 'circle' } } }
+            }
+        });
+    };
+    document.head.appendChild(script);
+}
 {% endif %}
 </script>
 {% endblock %}
