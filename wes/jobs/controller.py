@@ -21,11 +21,19 @@ class JobController:
             remote = f"{target_dir}/{path}"
             self.runner.scp_from(remote, tfile + "/.", str(dest), r=True)
 
+    def upload_scripts(self, task) -> None:
+        remote_dir = f"{task._run_dir}/scripts"
+        self.runner.create_dir(remote_dir)
+        for script in [task.job, task.post, *task.run]:
+            if script:
+                self.runner.scp_to(remote_dir, script, r=True)
+        self.runner.log(f"scripts uploaded to {remote_dir}", "✓")
+
     def execute_post_script(self, task) -> None:
         if not task.post:
             return
         git_name = task.git_url.split("/")[-1].replace(".git", "")
-        script_path = f"{task._run_dir}/{git_name}/{task.path}/{task.post}"
+        script_path = f"{task._run_dir}/scripts/{Path(task.post).name}"
         self.runner.log(f"running post script {task.post}", "▶")
         ok, _ = self.runner.run_command(f"bash {script_path}")
         if not ok:
@@ -51,32 +59,27 @@ class JobController:
 
         self.runner.log(f"submitting job ({task.run_id}) via sbatch", "▶")
 
-        pre_run_lines: list[str] = []
         for run_script in task.run:
-            pre_run_lines.extend(self._read_script(run_script))
+            script_name = Path(run_script).name
+            remote_script = f"{task._run_dir}/scripts/{script_name}"
+            self.runner.run_command(
+                f"bash {remote_script} >> pre_run_output.txt 2>&1"
+            )
 
-        git_name = task.git_url.split("/")[-1].replace(".git", "")
-        job_path = f"{task._run_dir}/{task.path}/{task.job}"
-
+        job_name = Path(task.job).name
+        job_path = f"{task._run_dir}/scripts/{job_name}"
         sbatch_cmd = f"sbatch --parsable --job-name={task.run_id}"
         overrides = task._sbatch_overrides()
         if overrides:
             sbatch_cmd += f" {overrides}"
         sbatch_cmd += f" {job_path}"
 
-        parts: list[str] = []
-        if pre_run_lines:
-            parts.append("{ " + " ; ".join(pre_run_lines) + " ; } > pre_run_output.txt 2>&1")
-        parts.append(sbatch_cmd)
-        full_script = "\n".join(parts)
-
-        ok, result = self.runner.run_command(f"bash -s", script=full_script)
+        ok, result = self.runner.run_command(sbatch_cmd)
 
         if not ok or not result:
             self.runner.log("sbatch submission failed", "✗")
             return State.FAILED
 
-        print("================ result obtained =================")
         raw = result[0].strip()
         job_id = raw.split(";")[0].strip()
         if not job_id or not job_id.isdigit():

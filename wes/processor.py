@@ -31,6 +31,8 @@ class Processor:
         if not runner.clone_repository(task._run_dir, task.git_url, task.branch):
             runner.log(f"failed to setup {task.name}", "✗")
             return State.FAILED
+        controller = JobController(runner)
+        controller.upload_scripts(task)
         return State.PENDING
 
     def pending_task(self, task: Task) -> State:
