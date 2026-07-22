@@ -112,11 +112,11 @@ class TestWESParserValid:
                 branch: experiment-fly-to-point
                 ssh: hpc
                 run:
-                    - bach_example/run.sh
-                job: bach_example/job.sh
+                    - batch_example/run.sh
+                job: batch_example/job.sh
                 artifacts:
                     - swarm-gym/results
-                post: bach_example/post.sh
+                post: batch_example/post.sh
                 cleanup: true
         """
         p = wes_file(content)

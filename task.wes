@@ -4,12 +4,12 @@ sequence:
         branch: Piotr/verifying-control-algorihtms
         ssh: hpc
         run:
-            - bach_example/run.sh
+            - batch_example/run.sh
         job: 
-            bach_example/job.sh
+            batch_example/job.sh
         artifacts: # folder to sync with
             - swarm-gym/results
         post:
-            bach_example/post.sh
+            batch_example/post.sh
         cleanup:
             True

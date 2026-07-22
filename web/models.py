@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 class TaskInfo(BaseModel):
     """Task recipe from .wes file."""
+
     name: str
     git_url: str
     branch: str = ""
@@ -25,6 +26,7 @@ class TaskInfo(BaseModel):
 
 class JobSummary(BaseModel):
     """Job execution from cache."""
+
     job_id: str
     task_name: str
     state: str

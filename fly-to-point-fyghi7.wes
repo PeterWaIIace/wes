@@ -4,7 +4,7 @@ sequence:
     cpus: '1'
     git_url: ssh://git@ben.ii.pw.edu.pl:9000/pwalas/swarm-gym.git
     gpus: '2'
-    job: bach_example/job.sh
+    job: batch_example/job.sh
     memory: 4G
     nodelist: flip
     ssh: hpc

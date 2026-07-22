@@ -33,8 +33,31 @@ class JobCache:
         with open(self._cache_file, "w", encoding="utf-8") as f:
             yaml.dump(self._data, f, default_flow_style=False)
 
+    def __dict_to_task(self, data: dict) -> Task:
+        return Task(
+            name=data.get("name", ""),
+            git_url=data.get("git_url", ""),
+            branch=data.get("branch", ""),
+            path=data.get("path", "."),
+            ssh_config=data.get("ssh", ""),
+            job=data.get("job", ""),
+            run=data.get("run", []),
+            post=data.get("post", ""),
+            artifacts=data.get("artifacts", []),
+            cleanup=data.get("cleanup", False),
+            active_jobs=data.get("jobs_ids", []),
+            state=State(data["state"]),
+            partition=data.get("partition", ""),
+            cpus=data.get("cpus", ""),
+            gpus=data.get("gpus", ""),
+            memory=data.get("memory", ""),
+            time=data.get("time", ""),
+            nodelist=data.get("nodelist", ""),
+            run_id=data.get("run_id", ""),
+        )
+
     def get_all(self) -> dict[str, dict]:
-        return self._data.get("tasks", {})
+        return dict(self._data.get("tasks", {}))
 
     def set(self, name: str, data: dict) -> None:
         self._data.setdefault("tasks", {})[name] = data

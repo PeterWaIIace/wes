@@ -1,9 +1,3 @@
-from enum import Enum
+from wes.tasks.states import State
 
-
-class State(str, Enum):
-    PENDING = "PENDING"
-    RUNNING = "RUNNING"
-    COMPLETED = "COMPLETED"
-    FAILED = "FAILED"
-    CANCELLED = "CANCELLED"
+__all__ = ["State"]

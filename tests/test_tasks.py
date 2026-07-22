@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from wes.states import State
 from wes.tasks import Task, _strip_ansi
+from wes.jobs.query import JobsQuery
 
 
 def test_task_defaults() -> None:
@@ -52,9 +53,14 @@ def test_task_with_initial_state() -> None:
     assert task.jobs_ids == ["12345"]
 
 
-def test_task_no_alive_jobs_empty() -> None:
-    task = Task(name="test", git_url="ssh://git@example.com/repo.git", path=".")
-    assert task.has_alive_jobs() is False
+def test_no_alive_jobs_empty() -> None:
+    query = JobsQuery("fake-ssh")
+    assert query.has_alive_jobs([]) is False
+
+
+def test_no_alive_jobs_no_ids() -> None:
+    query = JobsQuery("fake-ssh")
+    assert query.has_alive_jobs(["12345"]) is False
 
 
 def test_strip_ansi() -> None:

@@ -8,6 +8,12 @@ class JobsQuery:
     def __init__(self, ssh_config: str):
         self.ssh_config = ssh_config
 
+    def has_alive_jobs(self, job_ids: list[str]) -> bool:
+        if not job_ids:
+            return False
+        alive = {j.job_id for j in self.get()}
+        return any(jid in alive for jid in job_ids)
+
     def get(self) -> list[JobInfo]:
         fmt = "%i|%u|%j|%T|%M|%N|%P|%R|%C|%m"
         lines = _ssh_run(self.ssh_config, f"squeue -o '{fmt}'")

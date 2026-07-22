@@ -115,9 +115,15 @@ def create_task(req: CreateTaskRequest) -> dict:
 
     task_data: dict[str, str] = {}
     for field, val in [
-        ("git_url", req.git_url), ("branch", req.branch), ("ssh", req.ssh),
-        ("job", req.job), ("partition", req.partition), ("cpus", req.cpus),
-        ("gpus", req.gpus), ("memory", req.memory), ("time", req.time),
+        ("git_url", req.git_url),
+        ("branch", req.branch),
+        ("ssh", req.ssh),
+        ("job", req.job),
+        ("partition", req.partition),
+        ("cpus", req.cpus),
+        ("gpus", req.gpus),
+        ("memory", req.memory),
+        ("time", req.time),
         ("nodelist", req.nodelist),
     ]:
         if val.strip():
@@ -169,9 +175,12 @@ def delete_task(name: str) -> dict:
                     for jid in task.jobs_ids:
                         try:
                             import subprocess
+
                             subprocess.run(
                                 ["ssh", task.ssh_config, f"scancel {jid}"],
-                                capture_output=True, text=True, check=False,
+                                capture_output=True,
+                                text=True,
+                                check=False,
                             )
                             messages.append(f"cancelled slurm job {jid}")
                         except Exception:
@@ -179,9 +188,12 @@ def delete_task(name: str) -> dict:
                 if task.run_id and task.ssh_config:
                     try:
                         import subprocess
+
                         subprocess.run(
                             ["ssh", task.ssh_config, f"rm -rf runs/{task.run_id}"],
-                            capture_output=True, text=True, check=False,
+                            capture_output=True,
+                            text=True,
+                            check=False,
                         )
                         messages.append(f"removed runs/{task.run_id}")
                     except Exception:
@@ -337,8 +349,10 @@ def launch_job(req: LaunchJobRequest) -> dict:
         cache.close()
 
     return {
-        "status": "ok", "job_id": job_id,
-        "task_name": target.name, "state": target.status.value,
+        "status": "ok",
+        "job_id": job_id,
+        "task_name": target.name,
+        "state": target.status.value,
     }
 
 
@@ -360,7 +374,9 @@ def cancel_job(job_id: str) -> dict:
                 try:
                     _subprocess.run(
                         ["ssh", task.ssh_config, f"scancel {jid}"],
-                        capture_output=True, text=True, check=False,
+                        capture_output=True,
+                        text=True,
+                        check=False,
                     )
                     messages.append(f"cancelled slurm job {jid}")
                 except Exception:
@@ -369,7 +385,9 @@ def cancel_job(job_id: str) -> dict:
             try:
                 _subprocess.run(
                     ["ssh", task.ssh_config, f"rm -rf runs/{task.run_id}"],
-                    capture_output=True, text=True, check=False,
+                    capture_output=True,
+                    text=True,
+                    check=False,
                 )
                 messages.append(f"removed runs/{task.run_id}")
             except Exception:
@@ -415,6 +433,7 @@ def get_job_remote_logs(job_id: str) -> dict[str, str]:
     if not data or not data.get("ssh"):
         raise HTTPException(status_code=404, detail="Job not available")
     from wes.tasks import Task
+
     t = Task(
         name=data.get("task_name", job_id),
         git_url=data.get("git_url", ""),
@@ -452,13 +471,24 @@ def list_artifacts(name: str) -> list[ArtifactEntry]:
         if path.is_file():
             rel = str(path.relative_to(task_dir))
             suffix = path.suffix.lower()
-            kind_map = {".mp4": "video", ".zip": "model", ".csv": "csv",
-                        ".png": "image", ".jpg": "image", ".jpeg": "image",
-                        ".gif": "image", ".webp": "image"}
-            artifacts.append(ArtifactEntry(
-                name=path.name, kind=kind_map.get(suffix, "file"),
-                path=rel, size=path.stat().st_size,
-            ))
+            kind_map = {
+                ".mp4": "video",
+                ".zip": "model",
+                ".csv": "csv",
+                ".png": "image",
+                ".jpg": "image",
+                ".jpeg": "image",
+                ".gif": "image",
+                ".webp": "image",
+            }
+            artifacts.append(
+                ArtifactEntry(
+                    name=path.name,
+                    kind=kind_map.get(suffix, "file"),
+                    path=rel,
+                    size=path.stat().st_size,
+                )
+            )
     return artifacts
 
 
@@ -563,15 +593,26 @@ def get_nodes(ssh: str = "") -> ClusterData:
     if not ssh:
         return ClusterData(ssh="", error="No SSH host specified")
     from wes import WES
+
     try:
         nodes = WES(ssh).get_nodes()
     except Exception as e:
         return ClusterData(ssh=ssh, error=str(e))
-    return ClusterData(ssh=ssh, nodes=[
-        NodeInfo(name=n.name, partition=n.partition, state=n.state,
-                 cpus=n.cpus, gpus=n.gpus, memory=n.memory, reason=n.reason)
-        for n in nodes
-    ])
+    return ClusterData(
+        ssh=ssh,
+        nodes=[
+            NodeInfo(
+                name=n.name,
+                partition=n.partition,
+                state=n.state,
+                cpus=n.cpus,
+                gpus=n.gpus,
+                memory=n.memory,
+                reason=n.reason,
+            )
+            for n in nodes
+        ],
+    )
 
 
 @router.get("/cluster")
@@ -588,6 +629,7 @@ def get_cluster(ssh: str = "") -> dict:
     if not ssh:
         return {"ssh": "", "error": "No SSH host specified"}
     from wes import WES
+
     try:
         wes = WES(ssh)
         nodes = wes.get_nodes()
@@ -597,30 +639,74 @@ def get_cluster(ssh: str = "") -> dict:
         return {"ssh": ssh, "error": str(e)}
     return {
         "ssh": ssh,
-        "nodes": [{"name": n.name, "partition": n.partition, "state": n.state,
-                    "cpus": n.cpus, "gpus": n.gpus, "memory": n.memory, "reason": n.reason}
-                   for n in nodes],
-        "capacity": [{"name": c.name, "cpu_total": c.cpu_total, "cpu_alloc": c.cpu_alloc,
-                       "cpu_free": c.cpu_free, "mem_total_mb": c.mem_total_mb,
-                       "mem_alloc_mb": c.mem_alloc_mb, "mem_free_mb": c.mem_free_mb,
-                       "gpu_total": c.gpu_total, "gpu_alloc": c.gpu_alloc, "gpu_free": c.gpu_free}
-                      for c in capacity],
-        "jobs": [{"job_id": j.job_id, "user": j.user, "name": j.name, "state": j.state,
-                   "time": j.time, "nodes": j.nodes, "partition": j.partition,
-                   "reason": j.reason, "cpus": j.cpus, "memory": j.memory}
-                  for j in jobs],
+        "nodes": [
+            {
+                "name": n.name,
+                "partition": n.partition,
+                "state": n.state,
+                "cpus": n.cpus,
+                "gpus": n.gpus,
+                "memory": n.memory,
+                "reason": n.reason,
+            }
+            for n in nodes
+        ],
+        "capacity": [
+            {
+                "name": c.name,
+                "cpu_total": c.cpu_total,
+                "cpu_alloc": c.cpu_alloc,
+                "cpu_free": c.cpu_free,
+                "mem_total_mb": c.mem_total_mb,
+                "mem_alloc_mb": c.mem_alloc_mb,
+                "mem_free_mb": c.mem_free_mb,
+                "gpu_total": c.gpu_total,
+                "gpu_alloc": c.gpu_alloc,
+                "gpu_free": c.gpu_free,
+            }
+            for c in capacity
+        ],
+        "jobs": [
+            {
+                "job_id": j.job_id,
+                "user": j.user,
+                "name": j.name,
+                "state": j.state,
+                "time": j.time,
+                "nodes": j.nodes,
+                "partition": j.partition,
+                "reason": j.reason,
+                "cpus": j.cpus,
+                "memory": j.memory,
+            }
+            for j in jobs
+        ],
     }
 
 
 @router.post("/slurm")
 def generate_slurm(spec: SlurmJobSpec) -> SlurmJobResponse:
     from wes import SlurmJob
+
     job = SlurmJob(
-        name=spec.name, partition=spec.partition, nodes=spec.nodes, ntasks=spec.ntasks,
-        cpus_per_task=spec.cpus_per_task, gres=spec.gres, memory=spec.memory,
-        time=spec.time, nodelist=spec.nodelist, output=spec.output, error=spec.error,
-        email=spec.email, mail_type=spec.mail_type, account=spec.account, qos=spec.qos,
-        workdir=spec.workdir, env_vars=spec.env_vars, command=spec.command,
+        name=spec.name,
+        partition=spec.partition,
+        nodes=spec.nodes,
+        ntasks=spec.ntasks,
+        cpus_per_task=spec.cpus_per_task,
+        gres=spec.gres,
+        memory=spec.memory,
+        time=spec.time,
+        nodelist=spec.nodelist,
+        output=spec.output,
+        error=spec.error,
+        email=spec.email,
+        mail_type=spec.mail_type,
+        account=spec.account,
+        qos=spec.qos,
+        workdir=spec.workdir,
+        env_vars=spec.env_vars,
+        command=spec.command,
         script_path=spec.script_path,
     )
     return SlurmJobResponse(script=job.to_script(), args=job.sbatch_args())
@@ -659,11 +745,13 @@ def get_settings() -> SettingsData:
 
 @router.put("/settings")
 def update_settings(req: SettingsData) -> dict:
-    _save_settings({
-        "ssh_hosts": req.ssh_hosts,
-        "form_history": req.form_history,
-        "query_interval": req.query_interval,
-    })
+    _save_settings(
+        {
+            "ssh_hosts": req.ssh_hosts,
+            "form_history": req.form_history,
+            "query_interval": req.query_interval,
+        }
+    )
     return {"status": "ok"}
 
 
