@@ -296,7 +296,7 @@ document.getElementById('launch-go-btn').addEventListener('click', async () => {
         });
         const data = await resp.json();
         if (resp.ok) {
-            const jobId = data.job_id;
+            const jobId = data.run_id || data.job_id || data.task_name + '...';
             launcherJobId.textContent = jobId;
             launcherActiveJobId = jobId;
             markLauncherStep('launching', 'done');
@@ -430,10 +430,11 @@ function renderTaskTiles() {
             git_url: t.git_url,
             ssh: t.ssh,
             job: t.job,
+            run_id: t.run_id || '',
         };
         tile.addEventListener('task-launch', e => openLaunchModal(e.detail.task));
         tile.addEventListener('task-edit', e => openConfig(e.detail.index));
-        tile.addEventListener('task-delete', e => deleteTask(e.detail.name));
+        tile.addEventListener('task-delete', e => deleteTask(e.detail.name, e.detail.run_id));
         container.appendChild(tile);
     });
 
@@ -492,10 +493,11 @@ function openConfig(index) {
     }
 }
 
-async function deleteTask(name) {
+async function deleteTask(name, runId) {
+    const target = runId || name;
     if (!confirm('Remove "' + name + '"? This will cancel running jobs, clean up remote files, and delete the config.')) return;
     try {
-        const resp = await fetch('/api/tasks/' + encodeURIComponent(name), { method: 'DELETE' });
+        const resp = await fetch('/api/tasks/' + encodeURIComponent(target), { method: 'DELETE' });
         const data = await resp.json();
         if (resp.ok) {
             loadDashboard();

@@ -2,26 +2,14 @@ from __future__ import annotations
 
 import re
 import uuid
-from pathlib import Path
-from shutil import get_terminal_size
 
 from .states import State
 
-SEP = "─"
 _ANSI = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x1b]*\x1b\\")
 
 
 def _strip_ansi(text: str) -> str:
     return _ANSI.sub("", text)
-
-
-def _sep(label: str = "") -> str:
-    w = get_terminal_size().columns
-    if label:
-        left = f" {label} "
-        right = SEP * (w - len(left) - 2)
-        return f" {left}{right}"
-    return SEP * w
 
 
 class Task:
@@ -71,6 +59,14 @@ class Task:
     def _run_dir(self) -> str:
         return f"runs/{self.run_id}"
 
+    @property
+    def _git_name(self) -> str:
+        return self.git_url.split("/")[-1].replace(".git", "")
+
+    @property
+    def _artifact_dir(self) -> str:
+        return f"{self._run_dir}/{self._git_name}/{self.path}"
+
     def getStatus(self) -> State:
         return self.status
 
@@ -104,12 +100,6 @@ class TaskManager:
         self.running_cb = lambda task: task.getStatus()
         self.completed_cb = lambda task: State.COMPLETED
         self.failing_cb = lambda task: State.FAILED
-
-    def add_task(self, task: Task) -> None:
-        self.tasks[task.name] = task
-
-    def get_task(self, name: str) -> Task | None:
-        return self.tasks.get(name)
 
     def add_create_cb(self, callback) -> None:
         self.creating_cb = callback

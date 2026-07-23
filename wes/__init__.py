@@ -3,8 +3,6 @@ from __future__ import annotations
 from wes.cluster import Cluster
 from wes.clusters.node import NodeCapacity, NodeInfo
 from wes.jobs.job import JobInfo
-from wes.jobs.job import SlurmJob as SlurmJob
-
 
 class WES:
     def __init__(self, ssh_config: str):

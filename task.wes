@@ -8,7 +8,7 @@ sequence:
         job: 
             batch_example/job.sh
         artifacts: # folder to sync with
-            - swarm-gym/results
+            - results
         post:
             batch_example/post.sh
         cleanup:

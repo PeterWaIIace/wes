@@ -19,6 +19,7 @@ class JobController:
             dest = Path("results") / task.name / task.run_id / path
             dest.mkdir(parents=True, exist_ok=True)
             remote = f"{target_dir}/{path}"
+            print(f"obtaining file from remote: {remote} tfile: {tfile} to {dest}")
             self.runner.scp_from(remote, tfile + "/.", str(dest), r=True)
 
     def upload_scripts(self, task) -> None:
@@ -32,7 +33,6 @@ class JobController:
     def execute_post_script(self, task) -> None:
         if not task.post:
             return
-        git_name = task.git_url.split("/")[-1].replace(".git", "")
         script_path = f"{task._run_dir}/scripts/{Path(task.post).name}"
         self.runner.log(f"running post script {task.post}", "▶")
         ok, _ = self.runner.run_command(f"bash {script_path}")

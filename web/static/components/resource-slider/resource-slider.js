@@ -12,9 +12,15 @@ class ResourceSlider extends WesComponent {
     }
 
     async connectedCallback() {
-        this._min = parseInt(this.getAttribute('min')) || 1;
-        this._max = parseInt(this.getAttribute('max')) || 64;
-        this._value = parseInt(this.getAttribute('value')) || 1;
+        const minAttr = this.getAttribute('min');
+        const maxAttr = this.getAttribute('max');
+        const valAttr = this.getAttribute('value');
+        const parsedMin = minAttr !== null ? parseInt(minAttr) : NaN;
+        const parsedMax = maxAttr !== null ? parseInt(maxAttr) : NaN;
+        const parsedVal = valAttr !== null ? parseInt(valAttr) : NaN;
+        this._min = Number.isFinite(parsedMin) ? parsedMin : 1;
+        this._max = Number.isFinite(parsedMax) ? parsedMax : 64;
+        this._value = Number.isFinite(parsedVal) ? parsedVal : 1;
         this._suffix = this.getAttribute('suffix') || '';
 
         await this.loadTemplate('resource-slider');

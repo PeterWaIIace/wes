@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import subprocess
-import sys
 
 
 class RemoteRunner:
@@ -24,7 +23,7 @@ class RemoteRunner:
         if result.returncode != 0:
             print(f"ssh command failed: {result.stderr}")
             return False ,[]
-        print(f"--------------")
+        print("--------------")
         return True, [
             line
             for line in result.stdout.strip().splitlines()

@@ -22,6 +22,8 @@ class TaskInfo(BaseModel):
     memory: str = ""
     time: str = ""
     nodelist: str = ""
+    status: str = ""
+    run_id: str = ""
 
 
 class JobSummary(BaseModel):

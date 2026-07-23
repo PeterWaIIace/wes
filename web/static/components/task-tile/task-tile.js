@@ -54,7 +54,7 @@ class TaskTile extends WesComponent {
         this._shadow.getElementById('delete-btn').onclick = e => {
             e.preventDefault();
             e.stopPropagation();
-            this.emit('task-delete', { name: d.name });
+            this.emit('task-delete', { name: d.name, run_id: d.run_id || '' });
         };
     }
 }

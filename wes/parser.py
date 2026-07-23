@@ -1,11 +1,7 @@
 from __future__ import annotations
-
 from pathlib import Path
-
 import yaml
-
 from .tasks import Task
-
 
 class ConfigError(Exception):
     """Raised when a .wes config file is invalid."""
@@ -76,6 +72,7 @@ class WESParser:
         name = task_data.get("name", "Unnamed Task")
         _validate_task(name, task_data)
 
+        print(f"Parsing: {task_data}")
         return Task(
             name=name,
             git_url=task_data["git_url"],

@@ -1,10 +1,12 @@
 sequence:
-- fly-to-point-fyghi7:
+- fly-to-point:
     branch: Piotr/verifying-control-algorihtms
     cpus: '1'
     git_url: ssh://git@ben.ii.pw.edu.pl:9000/pwalas/swarm-gym.git
-    gpus: '2'
+    gpus: '1'
     job: batch_example/job.sh
     memory: 4G
-    nodelist: flip
+    nodelist: h32
     ssh: hpc
+    artifacts:
+        - results

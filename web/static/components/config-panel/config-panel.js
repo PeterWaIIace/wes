@@ -177,7 +177,7 @@ class ConfigPanel extends WesComponent {
             memory: `${this._memSlider.value}G`,
             cpus: String(this._cpuSlider.value),
             gpus: String(this._gpuSlider.value),
-            time: this._timeChips.value,
+            time: String(this._timeChips.value || ""),
             nodelist: this._nodelist.value || "",
         };
 

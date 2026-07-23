@@ -1,1 +1,23 @@
 tasks:
+  fly-to-point-b34d079d:
+    artifacts:
+    - results
+    branch: Piotr/verifying-control-algorihtms
+    cleanup: false
+    cpus: '1'
+    git_url: ssh://git@ben.ii.pw.edu.pl:9000/pwalas/swarm-gym.git
+    gpus: '1'
+    job: batch_example/job.sh
+    jobs_ids:
+    - '67300'
+    memory: 4G
+    nodelist: h32
+    partition: ''
+    path: .
+    post: ''
+    run: []
+    run_id: fly-to-point-b34d079d
+    ssh: hpc
+    state: COMPLETED
+    task_name: fly-to-point-b34d079d
+    time: ''

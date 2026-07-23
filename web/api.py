@@ -4,7 +4,7 @@ import csv
 import io
 import logging
 import re
-import uuid
+import time
 from pathlib import Path
 
 import yaml
@@ -22,8 +22,6 @@ from web.models import (
     ProgressData,
     RunRequest,
     SettingsData,
-    SlurmJobResponse,
-    SlurmJobSpec,
     TaskConfig,
     TaskInfo,
 )
@@ -56,11 +54,24 @@ def _parse_wes_files() -> list[TaskInfo]:
     if not wes_files:
         return []
 
+    cache = JobCache(persistent=True)
+    try:
+        cached = cache.get_all() or {}
+    finally:
+        cache.close()
+
     parser = WESParser()
     tasks: list[TaskInfo] = []
     for wes_file in wes_files:
         try:
             for task in parser.parse(str(wes_file)):
+                state = ""
+                active_run_id = ""
+                for run_id, data in cached.items():
+                    if isinstance(data, dict) and data.get("task_name") == task.name:
+                        state = data.get("state", "")
+                        active_run_id = run_id
+                        break
                 tasks.append(
                     TaskInfo(
                         name=task.name,
@@ -79,6 +90,8 @@ def _parse_wes_files() -> list[TaskInfo]:
                         memory=task.memory,
                         time=task.time,
                         nodelist=task.nodelist,
+                        status=state,
+                        run_id=active_run_id,
                     )
                 )
         except Exception as e:
@@ -168,38 +181,46 @@ def delete_task(name: str) -> dict:
 
     cache = JobCache(persistent=True)
     try:
-        for job_id, data in list((cache.get_all() or {}).items()):
-            if data.get("task_name") == name or job_id == name:
-                task = JobCache.cached_task(job_id, data)
-                if task.jobs_ids and task.ssh_config:
-                    for jid in task.jobs_ids:
-                        try:
-                            import subprocess
-
-                            subprocess.run(
-                                ["ssh", task.ssh_config, f"scancel {jid}"],
-                                capture_output=True,
-                                text=True,
-                                check=False,
-                            )
-                            messages.append(f"cancelled slurm job {jid}")
-                        except Exception:
-                            pass
-                if task.run_id and task.ssh_config:
+        for run_id, data in list((cache.get_all() or {}).items()):
+            if not isinstance(data, dict):
+                continue
+            matches = (
+                data.get("task_name") == name
+                or data.get("run_id") == name
+                or run_id == name
+            )
+            if not matches:
+                continue
+            task = JobCache.cached_task(run_id, data)
+            if task.jobs_ids and task.ssh_config:
+                for jid in task.jobs_ids:
                     try:
                         import subprocess
 
                         subprocess.run(
-                            ["ssh", task.ssh_config, f"rm -rf runs/{task.run_id}"],
+                            ["ssh", task.ssh_config, f"scancel {jid}"],
                             capture_output=True,
                             text=True,
                             check=False,
                         )
-                        messages.append(f"removed runs/{task.run_id}")
+                        messages.append(f"cancelled slurm job {jid}")
                     except Exception:
                         pass
-                cache.remove(job_id)
-                messages.append(f"removed job {job_id} from cache")
+            if task.run_id and task.ssh_config:
+                try:
+                    import subprocess
+
+                    subprocess.run(
+                        ["ssh", task.ssh_config, f"rm -rf runs/{task.run_id}"],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    messages.append(f"removed runs/{task.run_id}")
+                except Exception:
+                    pass
+            cache.remove(run_id)
+            messages.append(f"removed job {run_id} from cache")
     finally:
         cache.close()
 
@@ -279,10 +300,10 @@ def get_job(job_id: str) -> JobSummary:
 
 @router.post("/jobs")
 def launch_job(req: LaunchJobRequest) -> dict:
-    """Launch a job: parse .wes, apply overrides, execute."""
-    import subprocess
+    """Launch a job: parse .wes, apply overrides, run via Processor."""
 
     from wes.parser import WESParser
+    from wes.processor import Processor
 
     task_name = req.task_name.strip()
     if not task_name:
@@ -292,9 +313,23 @@ def launch_job(req: LaunchJobRequest) -> dict:
     if not wes_path.exists():
         raise HTTPException(status_code=404, detail=f"Config '{wes_path}' not found")
 
-    parser = WESParser()
+    processor = Processor()
+
+    for _run_id, task in processor.cache.clean_for_task_names({task_name}):
+        if task.jobs_ids and task.ssh_config:
+            for jid in task.jobs_ids:
+                try:
+                    import subprocess
+                    subprocess.run(
+                        ["ssh", task.ssh_config, f"scancel {jid}"],
+                        capture_output=True, text=True, check=False,
+                    )
+                except Exception:
+                    pass
+
+    wes = WESParser()
     try:
-        tasks = parser.parse(str(wes_path))
+        tasks = wes.parse(str(wes_path))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -306,52 +341,28 @@ def launch_job(req: LaunchJobRequest) -> dict:
         if hasattr(target, key):
             setattr(target, key, val)
 
-    cache = JobCache(persistent=True)
-    job_id = f"{target.name}-{uuid.uuid4().hex[:8]}"
+    from wes.tasks.tasks import TaskManager
+
+    terminal = {State.COMPLETED, State.FAILED, State.CANCELLED}
+    task_mgr = TaskManager([target])
+    task_mgr.add_create_cb(processor.create_task)
+    task_mgr.add_pending_cb(processor.pending_task)
+    task_mgr.add_running_cb(processor.running_task)
+    task_mgr.add_completed_cb(processor.completed_task)
+    task_mgr.add_failing_cb(processor.failing_task)
     try:
-        try:
-            target.execute()
-        except subprocess.CalledProcessError as e:
-            log.error("Job '%s' failed: %s", job_id, e)
-            detail = str(e)
-            if e.stderr:
-                detail += f"\n\n{e.stderr.strip()}"
-            if e.stdout:
-                detail += f"\n\n{e.stdout.strip()}"
-            try:
-                remote_logs = target.fetch_remote_logs()
-                for fname, content in remote_logs.items():
-                    label = fname.replace(".txt", "").replace("_", " ")
-                    detail += f"\n\n--- {label} ---\n{content}"
-            except Exception:
-                pass
-            raise HTTPException(status_code=500, detail=detail) from e
-        except OSError as e:
-            log.error("Job '%s' failed: %s", job_id, e)
-            raise HTTPException(status_code=500, detail=str(e)) from e
-
-        if target.status == State.FAILED:
-            detail = f"Job '{job_id}' failed during execution."
-            try:
-                remote_logs = target.fetch_remote_logs()
-                for fname, content in remote_logs.items():
-                    label = fname.replace(".txt", "").replace("_", " ")
-                    detail += f"\n\n--- {label} ---\n{content}"
-            except Exception:
-                pass
-            raise HTTPException(status_code=500, detail=detail)
-
-        cache_data = JobCache.task_to_cache_data(target)
-        cache_data["task_name"] = target.name
-        if target.status == State.RUNNING:
-            cache.set(job_id, cache_data)
+        task_mgr.check(target.name)
+        deadline = time.time() + 60
+        while target.getStatus() not in terminal and time.time() < deadline:
+            time.sleep(2)
+            task_mgr.check(target.name)
     finally:
-        cache.close()
+        processor.cache.close()
 
     return {
         "status": "ok",
-        "job_id": job_id,
         "task_name": target.name,
+        "run_id": target.run_id,
         "state": target.status.value,
     }
 
@@ -453,6 +464,10 @@ def get_job_remote_logs(job_id: str) -> dict[str, str]:
 
 @router.get("/tasks/{name}/logs", response_model=LogData)
 def get_task_logs(name: str) -> LogData:
+    return get_logs(name)
+
+
+def get_logs(name: str) -> LogData:
     task_dir = RESULTS_DIR / name
     return LogData(
         stdout=_read_file(task_dir / "job_output.txt"),
@@ -517,10 +532,11 @@ def get_progress(name: str) -> ProgressData:
 def refresh_artifacts(name: str) -> dict:
     cache = JobCache(persistent=True)
     try:
-        data = (cache.get_all() or {}).get(name)
-        if not data:
+        matches = cache.find_by_task_name(name)
+        if not matches:
             raise HTTPException(status_code=404, detail=f"Job '{name}' not found")
-        task = JobCache.cached_task(name, data)
+        run_id, data = matches[-1]
+        task = JobCache.cached_task(run_id, data)
         if task.artifacts:
             task._Task__sync_artifacts()
         return {"status": "ok", "message": f"Refreshed artifacts for '{name}'"}
@@ -531,10 +547,10 @@ def refresh_artifacts(name: str) -> dict:
 @router.post("/run")
 def submit_run(req: RunRequest) -> dict:
     import os
-    import subprocess
     import tempfile
 
     from wes.parser import WESParser
+    from wes.processor import Processor
 
     parser = WESParser()
     tmp_path = None
@@ -552,24 +568,31 @@ def submit_run(req: RunRequest) -> dict:
         if tmp_path:
             os.unlink(tmp_path)
 
-    cache = JobCache(persistent=True)
+    processor = Processor()
+    terminal = {State.COMPLETED, State.FAILED, State.CANCELLED}
+    from wes.tasks.tasks import TaskManager
+
     started: list[str] = []
     errors: list[str] = []
     try:
         for task in tasks:
+            task_mgr = TaskManager([task])
+            task_mgr.add_create_cb(processor.create_task)
+            task_mgr.add_pending_cb(processor.pending_task)
+            task_mgr.add_running_cb(processor.running_task)
+            task_mgr.add_completed_cb(processor.completed_task)
+            task_mgr.add_failing_cb(processor.failing_task)
             try:
-                task.execute()
-            except (subprocess.CalledProcessError, OSError) as e:
+                task_mgr.check(task.name)
+                deadline = time.time() + 60
+                while task.getStatus() not in terminal and time.time() < deadline:
+                    time.sleep(2)
+                    task_mgr.check(task.name)
+                started.append(task.name)
+            except Exception as e:
                 errors.append(f"{task.name}: {e}")
-                continue
-            if task.status == State.RUNNING:
-                job_id = f"{task.name}-{uuid.uuid4().hex[:8]}"
-                cache_data = JobCache.task_to_cache_data(task)
-                cache_data["task_name"] = task.name
-                cache.set(job_id, cache_data)
-            started.append(task.name)
     finally:
-        cache.close()
+        processor.cache.close()
 
     return {"status": "ok", "tasks": started, "errors": errors}
 
@@ -682,34 +705,6 @@ def get_cluster(ssh: str = "") -> dict:
             for j in jobs
         ],
     }
-
-
-@router.post("/slurm")
-def generate_slurm(spec: SlurmJobSpec) -> SlurmJobResponse:
-    from wes import SlurmJob
-
-    job = SlurmJob(
-        name=spec.name,
-        partition=spec.partition,
-        nodes=spec.nodes,
-        ntasks=spec.ntasks,
-        cpus_per_task=spec.cpus_per_task,
-        gres=spec.gres,
-        memory=spec.memory,
-        time=spec.time,
-        nodelist=spec.nodelist,
-        output=spec.output,
-        error=spec.error,
-        email=spec.email,
-        mail_type=spec.mail_type,
-        account=spec.account,
-        qos=spec.qos,
-        workdir=spec.workdir,
-        env_vars=spec.env_vars,
-        command=spec.command,
-        script_path=spec.script_path,
-    )
-    return SlurmJobResponse(script=job.to_script(), args=job.sbatch_args())
 
 
 # ──────────────────────────────────────────────
