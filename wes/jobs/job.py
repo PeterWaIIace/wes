@@ -44,7 +44,8 @@ class SshItem(MirrorItem):
         super().__init__(h_path, r_path)
 
     def copy(self):
-        self.ssh.scp_to(self.r_path, self.h_path + "/" + self.h_name)
+        result = self.ssh.scp_to(self.r_path, self.h_path + "/" + self.h_name)
+        print(f"Copying {self.h_path}/{self.h_name} to {self.r_path} result: {result}")
 
     def sync(self):
         self.ssh.scp_from(self.r_path, self.r_name, self.h_path + "/" + self.h_name, r=True)
@@ -54,23 +55,15 @@ class JobConfig(SshItem):
     def __init__(self, job: Job, task: Task, r_path: str, ssh_config: str):
         self.task = task
         self.job = job
-        self._save_job_config_json()
         self.h_path =   f"{self.job.job_name}/{self.task.name}_config.json"
+        self._save_job_config_json()
         super().__init__(str(self.h_path), r_path, ssh_config)
 
     def _save_job_config_json(self):
         config = {
             "job": {
-                "job_id": self.job.job_id,
-                "user": self.job.user,
-                "name": self.job.name,
-                "state": self.job.state,
-                "time": self.job.time,
-                "nodes": self.job.nodes,
-                "partition": self.job.partition,
-                "reason": self.job.reason,
-                "cpus": self.job.cpus,
-                "memory": self.job.memory,
+                "namespace": self.job.namespace,
+                "job_name": self.job.job_name,
             },
             "task": {
                 "name": self.task.name,
@@ -89,8 +82,9 @@ class JobConfig(SshItem):
                 "nodelist": self.task.nodelist,
             },
         }
-        config_path = Path(self.task._artifact_dir) / f"{self.task.name}_config.json"
-        with open(config_path, 'w') as f:
+
+        Path(self.h_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(self.h_path, 'w') as f:
             json.dump(config, f, indent=4)
 
 
@@ -134,6 +128,7 @@ class Job:
 
         self._setup_artifacts()
         self._setup_scripts()
+        self._setup_job_config()
 
     def _setup_artifacts(self):
         self.artifacts = [] 
@@ -160,7 +155,8 @@ class Job:
         )
 
     def _setup_job_config(self):
-        self.job_conf = JobConfig(self, self.task, f"{self.job_dir}/{self.task.name}_config.json", ssh_config)
+        print(f"{self.job_dir}/{self.task.name}_config.json")
+        self.job_conf = JobConfig(self, self.task, f"{self.job_dir}/{self.task.name}_config.json", self.ssh_config)
         self.job_conf.copy()
 
     def sync(self) -> None:
