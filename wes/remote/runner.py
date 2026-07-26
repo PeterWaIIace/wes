@@ -11,6 +11,11 @@ class SshRunner:
     def log(self, msg: str, kind: str = "•") -> None:
         print(f"  {kind} {msg}")
 
+    def get_user(self) -> str:
+        result = self._ssh_run(self.ssh_config, "whoami")
+        print(result)
+        return result[1][0].strip()
+
     def _ssh_run(
         self, ssh_config: str, cmd: str, script: str | None = None
     ) -> tuple[bool, list[str]]:

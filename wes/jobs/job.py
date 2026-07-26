@@ -68,9 +68,8 @@ class ClientSsh(ClientItem):
             cmd = f"cd {self.job_path} && {cmd}"
 
         print(f"executing cmd: {cmd}")
-        print(f"self.ssh.run_command(cmd): {self.ssh.run_command(cmd)}")
         ok, result = self.ssh.run_command(cmd)
-        return f"ssh {self.ssh.ssh_config} 'bash {self.job_path}'"
+        return ok, result
 
 class Job:
     def __init__(self, task: Task, ssh_config: str):
@@ -127,9 +126,6 @@ class Job:
         job_path = self.script.r_path
         sbatch_cmd = f"sbatch --parsable --job-name={self.job_name}"
         sbatch_cmd += f" ./{self.script.r_name}"
-        # overrides = self.task._sbatch_overrides()
-        # if overrides:
-        #     sbatch_cmd += f" {overrides}"
 
         print(sbatch_cmd)
         ok, result = self.job_ssh_client.cmd(sbatch_cmd)

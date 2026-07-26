@@ -1,15 +1,14 @@
 #!/bin/bash
-#SBATCH --job-name=experiment_job        # nazwa zadania
 #SBATCH --output=job_output.txt    # plik wyjściowy (stdout)
 #SBATCH --error=job_error.txt      # plik błędów (stderr)
 #SBATCH --partition=gpu            # nazwa partycji
 #SBATCH --nodes=1                  # liczba węzłów
 #SBATCH --ntasks=1                 # liczba zadań
-#SBATCH --nodelist=flip          # wybierz GPU
+#SBATCH --nodelist=h32             # wybierz GPU
 #SBATCH --cpus-per-task=2          # liczba CPU na zadanie
 #SBATCH --gres=gpu:1               # liczba i typ gpu
-#SBATCH --mem=16G                   # pamięć RAM
-#SBATCH --time=04:00:00            # maksymalny czas wykonania
+#SBATCH --mem=16G                  # pamięć RAM
+#SBATCH --time=01:00:00            # maksymalny czas wykonania
 
 # --- Komendy do wykonania ---
 echo "=== Job started: $(date) ==="
