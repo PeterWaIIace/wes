@@ -9,6 +9,7 @@ from wes.states import State
 from wes.remote.runner import SshRunner
 
 import secrets
+import json
 
 @dataclass
 class JobInfo:
@@ -48,6 +49,50 @@ class SshItem(MirrorItem):
     def sync(self):
         self.ssh.scp_from(self.r_path, self.r_name, self.h_path + "/" + self.h_name, r=True)
 
+class JobConfig(SshItem):
+
+    def __init__(self, job: Job, task: Task, r_path: str, ssh_config: str):
+        self.task = task
+        self.job = job
+        self._save_job_config_json()
+        self.h_path =   f"{self.job.job_name}/{self.task.name}_config.json"
+        super().__init__(str(self.h_path), r_path, ssh_config)
+
+    def _save_job_config_json(self):
+        config = {
+            "job": {
+                "job_id": self.job.job_id,
+                "user": self.job.user,
+                "name": self.job.name,
+                "state": self.job.state,
+                "time": self.job.time,
+                "nodes": self.job.nodes,
+                "partition": self.job.partition,
+                "reason": self.job.reason,
+                "cpus": self.job.cpus,
+                "memory": self.job.memory,
+            },
+            "task": {
+                "name": self.task.name,
+                "git_url": self.task.git_url,
+                "path": self.task.path,
+                "ssh_config": self.task.ssh_config,
+                "job_script": self.task.job_script,
+                "branch": self.task.branch,
+                "cleanup": self.task.cleanup_git,
+                "artifacts": self.task.artifacts,
+                "partition": self.task.partition,
+                "cpus": self.task.cpus,
+                "gpus": self.task.gpus,
+                "memory": self.task.memory,
+                "time": self.task.time,
+                "nodelist": self.task.nodelist,
+            },
+        }
+        config_path = Path(self.task._artifact_dir) / f"{self.task.name}_config.json"
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=4)
+
 
 class ClientItem():
     def __init__(self, job_path: str):
@@ -72,15 +117,15 @@ class ClientSsh(ClientItem):
         return ok, result
 
 class Job:
-    def __init__(self, task: Task, ssh_config: str):
+    def __init__(self, task: Task, ssh_config: str, namespace: str | None = None):
         self.ssh_config = ssh_config
 
-        self.task = task 
-        self.namespace = secrets.token_urlsafe(8)
+        self.task = task
+        self.namespace = namespace or secrets.token_urlsafe(8)
         self.job_name = f"{self.task.name}_{self.namespace}"
 
         self.job_dir = self.task.name + "/" + self.namespace
-        self.repo_dir = self.job_dir + "/" +  self.task.git_url.split("/")[-1].split(".")[0]
+        self.repo_dir = self.job_dir + "/" + self.task.git_url.split("/")[-1].split(".")[0]
 
         self.artifacts = []
         self.script = None
@@ -114,9 +159,16 @@ class Job:
             ssh_config=self.ssh_config
         )
 
+    def _setup_job_config(self):
+        self.job_conf = JobConfig(self, self.task, f"{self.job_dir}/{self.task.name}_config.json", ssh_config)
+        self.job_conf.copy()
+
     def sync(self) -> None:
         for artifact in self.artifacts:
             artifact.sync()
+
+    def cleanup(self) -> None:
+        self.job_ssh_client.cmd(f"rm -rf {self.job_dir}")
 
     def upload_scripts(self) -> None:
         self.script.copy()
