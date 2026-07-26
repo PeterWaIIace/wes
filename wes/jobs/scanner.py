@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from tasks.tasks import Task
+from wes.tasks.tasks import Task
 from wes.jobs.job import Job
 from wes.remote.runner import SshRunner
 

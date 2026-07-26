@@ -1,4 +1,4 @@
 from .states import State
-from .tasks import Task, TaskManager
+from .tasks import Task
 
-__all__ = ["State", "Task", "TaskManager"]
+__all__ = ["State", "Task"]

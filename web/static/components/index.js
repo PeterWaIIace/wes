@@ -10,4 +10,3 @@ import './config-panel/config-panel.js';
 import './log-viewer/log-viewer.js';
 import './artifact-list/artifact-list.js';
 import './settings-list/settings-list.js';
-import './slurm-designer/slurm-designer.js';

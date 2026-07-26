@@ -45,6 +45,17 @@ def _read_file(path: Path) -> str:
     return ""
 
 
+def _known_ssh_hosts() -> list[str]:
+    hosts: set[str] = set()
+    for task in _parse_wes_files():
+        if task.ssh:
+            hosts.add(task.ssh)
+    settings = _load_settings()
+    for h in settings.get("ssh_hosts", []):
+        hosts.add(h)
+    return sorted(hosts)
+
+
 def _parse_wes_files() -> list[TaskInfo]:
     wes_files = sorted(Path(".").glob("*.wes"))
     if not wes_files:
@@ -57,9 +68,13 @@ def _parse_wes_files() -> list[TaskInfo]:
         pass
 
     tasks: list[TaskInfo] = []
+    seen_names: set[str] = set()
     for wes_file in wes_files:
         try:
             for task_dict in parse_wes_file(str(wes_file)):
+                if task_dict["name"] in seen_names:
+                    continue
+                seen_names.add(task_dict["name"])
                 state = ""
                 active_run_id = ""
                 for run_id, data in cached.items():
@@ -197,91 +212,114 @@ def delete_task(name: str) -> dict:
 # ──────────────────────────────────────────────
 
 
+def _get_ssh_user(ssh: str) -> str:
+    try:
+        from wes.remote.runner import SshRunner
+        return SshRunner(ssh).get_user()
+    except Exception:
+        return ""
+
+
+def _build_cache_index() -> dict[str, dict]:
+    cache = JobCache()
+    index: dict[str, dict] = {}
+    for run_id, data in cache.get_all().items():
+        if not isinstance(data, dict):
+            continue
+        for jid in data.get("jobs_ids", []):
+            index[str(jid)] = data
+        index[run_id] = data
+    return index
+
+
 @router.get("/jobs", response_model=list[JobSummary])
 def list_jobs() -> list[JobSummary]:
-    cache = JobCache()
+    from wes.jobs.query import JobsQuery
+
+    cache_idx = _build_cache_index()
+    seen: set[str] = set()
     jobs: list[JobSummary] = []
-    for job_id, data in (cache.get_all() or {}).items():
-        jobs.append(
-            JobSummary(
-                job_id=job_id,
-                task_name=data.get("task_name", job_id),
-                state=data.get("state", "UNKNOWN"),
-                run_id=data.get("run_id", ""),
-                jobs_ids=data.get("jobs_ids", []),
-                git_url=data.get("git_url", ""),
-                branch=data.get("branch", ""),
-                ssh=data.get("ssh", ""),
-                job=data.get("job", ""),
-                partition=data.get("partition", ""),
-                cpus=data.get("cpus", ""),
-                gpus=data.get("gpus", ""),
-                memory=data.get("memory", ""),
-                time=data.get("time", ""),
-                nodelist=data.get("nodelist", ""),
+
+    for ssh in _known_ssh_hosts():
+        user = _get_ssh_user(ssh)
+        try:
+            squeue_jobs = JobsQuery(ssh).get()
+        except Exception:
+            continue
+        for j in squeue_jobs:
+            if user and j.user != user:
+                continue
+            if j.job_id in seen:
+                continue
+            seen.add(j.job_id)
+            cached = cache_idx.get(j.job_id, {})
+            jobs.append(
+                JobSummary(
+                    job_id=j.job_id,
+                    task_name=cached.get("task_name") or j.name,
+                    state=j.state,
+                    run_id=cached.get("run_id", ""),
+                    jobs_ids=cached.get("jobs_ids", []),
+                    git_url=cached.get("git_url", ""),
+                    branch=cached.get("branch", ""),
+                    ssh=ssh,
+                    job=cached.get("job", ""),
+                    partition=j.partition,
+                    cpus=j.cpus,
+                    gpus=cached.get("gpus", ""),
+                    memory=j.memory,
+                    time=j.time,
+                    nodelist=j.nodes,
+                )
             )
-        )
     return jobs
 
 
 @router.get("/jobs/{job_id}", response_model=JobSummary)
 def get_job(job_id: str) -> JobSummary:
-    cache = JobCache()
-    data = cache.get(job_id)
-    if not data:
-        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
-    return JobSummary(
-        job_id=job_id,
-        task_name=data.get("task_name", job_id),
-        state=data.get("state", "UNKNOWN"),
-        run_id=data.get("run_id", ""),
-        jobs_ids=data.get("jobs_ids", []),
-        git_url=data.get("git_url", ""),
-        branch=data.get("branch", ""),
-        ssh=data.get("ssh", ""),
-        job=data.get("job", ""),
-        partition=data.get("partition", ""),
-        cpus=data.get("cpus", ""),
-        gpus=data.get("gpus", ""),
-        memory=data.get("memory", ""),
-        time=data.get("time", ""),
-        nodelist=data.get("nodelist", ""),
-    )
+    from wes.jobs.query import JobsQuery
+
+    cache_idx = _build_cache_index()
+
+    for ssh in _known_ssh_hosts():
+        try:
+            for j in JobsQuery(ssh).get():
+                if j.job_id == job_id:
+                    cached = cache_idx.get(j.job_id, {})
+                    return JobSummary(
+                        job_id=j.job_id,
+                        task_name=cached.get("task_name") or j.name,
+                        state=j.state,
+                        run_id=cached.get("run_id", ""),
+                        jobs_ids=cached.get("jobs_ids", []),
+                        git_url=cached.get("git_url", ""),
+                        branch=cached.get("branch", ""),
+                        ssh=ssh,
+                        job=cached.get("job", ""),
+                        partition=j.partition,
+                        cpus=j.cpus,
+                        gpus=cached.get("gpus", ""),
+                        memory=j.memory,
+                        time=j.time,
+                        nodelist=j.nodes,
+                    )
+        except Exception:
+            pass
+    raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
 
 
 @router.delete("/jobs/{job_id}")
 def cancel_job(job_id: str) -> dict:
-    cache = JobCache()
     messages: list[str] = []
-    data = cache.get(job_id)
-    if not data:
-        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
-
-    job_ids = data.get("jobs_ids", [])
-    ssh = data.get("ssh", "")
-    if job_ids and ssh:
-        messages.extend(cancel_slurm_jobs(ssh, job_ids))
-    run_id = data.get("run_id", "")
-    if run_id and ssh:
-        if remove_remote_dir(ssh, f"runs/{run_id}"):
-            messages.append(f"removed runs/{run_id}")
-    cache.remove(job_id)
-    messages.append("removed from cache")
-
-    msg = "; ".join(messages) if messages else f"job '{job_id}' not found"
+    for ssh in _known_ssh_hosts():
+        messages.extend(cancel_slurm_jobs(ssh, [job_id]))
+    msg = "; ".join(messages) if messages else f"Job '{job_id}' not found on any host"
     return {"status": "ok", "message": msg}
 
 
 @router.get("/jobs/{job_id}/logs", response_model=LogData)
 def get_job_logs(job_id: str) -> LogData:
-    cache = JobCache()
-    data = cache.get(job_id)
-
-    if data and data.get("run_id"):
-        run_dir = Path("results") / data.get("task_name", job_id) / data["run_id"]
-    else:
-        run_dir = RESULTS_DIR / job_id
-
+    run_dir = RESULTS_DIR / job_id
     return LogData(
         stdout=_read_file(run_dir / "job_output.txt"),
         stderr=_read_file(run_dir / "job_error.txt"),
@@ -291,20 +329,116 @@ def get_job_logs(job_id: str) -> LogData:
 
 @router.get("/jobs/{job_id}/remote-logs")
 def get_job_remote_logs(job_id: str) -> dict[str, str]:
-    cache = JobCache()
-    data = cache.get(job_id)
-    if not data or not data.get("ssh"):
-        raise HTTPException(status_code=404, detail="Job not available")
+    from wes.jobs.query import JobsQuery
 
-    ssh = data["ssh"]
-    run_id = data.get("run_id", "")
-    job_dir = f"{data.get('job', '').split('/')[-1].replace('.sh', '')}/{run_id}"
+    cache_idx = _build_cache_index()
+    cached = cache_idx.get(job_id, {})
 
-    return {
-        "stdout": read_remote_log(ssh, f"{job_dir}/job_output.txt"),
-        "stderr": read_remote_log(ssh, f"{job_dir}/job_error.txt"),
-        "pre_run": read_remote_log(ssh, f"{job_dir}/pre_run_output.txt"),
-    }
+    for ssh in _known_ssh_hosts():
+        try:
+            for j in JobsQuery(ssh).get():
+                if j.job_id == job_id:
+                    name = cached.get("task_name") or j.name
+                    return {
+                        "stdout": read_remote_log(ssh, f"{name}/job_output.txt"),
+                        "stderr": read_remote_log(ssh, f"{name}/job_error.txt"),
+                        "pre_run": read_remote_log(ssh, f"{name}/pre_run_output.txt"),
+                    }
+        except Exception:
+            pass
+    raise HTTPException(status_code=404, detail="Job not available")
+
+
+@router.get("/jobs/{job_id}/remote-artifacts")
+def get_job_remote_artifacts(job_id: str) -> list[dict]:
+    from wes.jobs.query import JobsQuery
+    from wes.remote.runner import SshRunner
+
+    cache_idx = _build_cache_index()
+    cached = cache_idx.get(job_id, {})
+
+    for ssh in _known_ssh_hosts():
+        try:
+            for j in JobsQuery(ssh).get():
+                if j.job_id == job_id:
+                    name = cached.get("task_name") or j.name
+                    runner = SshRunner(ssh)
+                    ok, lines = runner.run_command(
+                        f"find {name} -type f 2>/dev/null"
+                    )
+                    if not ok:
+                        return []
+                    artifacts: list[dict] = []
+                    for line in lines:
+                        path = line.strip()
+                        if not path:
+                            continue
+                        suffix = Path(path).suffix.lower()
+                        kind_map = {
+                            ".mp4": "video", ".zip": "model", ".csv": "csv",
+                            ".png": "image", ".jpg": "image", ".jpeg": "image",
+                            ".gif": "image", ".webp": "image",
+                        }
+                        artifacts.append({
+                            "name": Path(path).name,
+                            "kind": kind_map.get(suffix, "file"),
+                            "path": path,
+                        })
+                    return artifacts
+        except Exception:
+            pass
+    return []
+
+
+@router.get("/jobs/{job_id}/remote-artifacts/{path:path}")
+def serve_job_remote_artifact(job_id: str, path: str):
+    from wes.jobs.query import JobsQuery
+    from wes.remote.runner import SshRunner
+    import tempfile, subprocess
+
+    for ssh in _known_ssh_hosts():
+        try:
+            for j in JobsQuery(ssh).get():
+                if j.job_id == job_id:
+                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=Path(path).suffix)
+                    result = subprocess.run(
+                        ["scp", f"{ssh}:{path}", tmp.name],
+                        capture_output=True, text=True, check=False,
+                    )
+                    if result.returncode == 0:
+                        return FileResponse(tmp.name, filename=Path(path).name)
+        except Exception:
+            pass
+    raise HTTPException(status_code=404, detail="Artifact not found")
+
+
+@router.get("/jobs/{job_id}/remote-csv")
+def get_job_remote_csv(job_id: str) -> ProgressData:
+    from wes.jobs.query import JobsQuery
+    from wes.remote.runner import _ssh_run
+
+    cache_idx = _build_cache_index()
+    cached = cache_idx.get(job_id, {})
+
+    for ssh in _known_ssh_hosts():
+        try:
+            for j in JobsQuery(ssh).get():
+                if j.job_id == job_id:
+                    name = cached.get("task_name") or j.name
+                    csv_paths = _ssh_run(ssh, f"find {name} -name '*.csv' -type f 2>/dev/null | head -1")
+                    if not csv_paths:
+                        return ProgressData()
+                    content_lines = _ssh_run(ssh, f"cat {csv_paths[0].strip()}")
+                    if not content_lines:
+                        return ProgressData()
+                    content = "\n".join(content_lines)
+                    reader = csv.reader(io.StringIO(content))
+                    rows = list(reader)
+                    if rows:
+                        return ProgressData(columns=rows[0], rows=rows[1:])
+        except Exception:
+            pass
+    return ProgressData()
 
 
 # ──────────────────────────────────────────────

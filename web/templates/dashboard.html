@@ -452,6 +452,7 @@ function renderJobList() {
     Object.values(cachedJobs).forEach(job => {
         const tile = document.createElement('div');
         tile.className = 'task-tile job-tile';
+        tile.style.cursor = 'pointer';
         const state = (job.state || 'unknown').toLowerCase();
         tile.innerHTML = `
             <div class="tt-top">
@@ -467,6 +468,10 @@ function renderJobList() {
                 <span class="tt-branch">${job.branch || ''}</span>
             </div>
         `;
+        tile.addEventListener('click', e => {
+            if (e.target.closest('.job-cancel-btn')) return;
+            window.location.href = '/jobs/' + encodeURIComponent(job.job_id);
+        });
         tile.querySelector('.job-cancel-btn').addEventListener('click', e => {
             e.preventDefault();
             e.stopPropagation();

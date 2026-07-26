@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tasks.tasks import Task
+from wes.tasks.tasks import Task
 from dataclasses import dataclass
 
 from pathlib import Path
