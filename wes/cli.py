@@ -3,15 +3,6 @@ from __future__ import annotations
 
 import argparse
 
-from dotenv import load_dotenv
-
-from .processor import Processor
-
-
-def _run(args: argparse.Namespace) -> None:
-    processor = Processor()
-    processor.run(args)
-
 
 def _serve(args: argparse.Namespace) -> None:
     import uvicorn
@@ -25,9 +16,14 @@ def _serve(args: argparse.Namespace) -> None:
     )
 
 
-def main() -> None:
-    load_dotenv()
+def _run(args: argparse.Namespace) -> None:
+    from wes.engine import Engine
 
+    engine = Engine()
+    engine.start_jobs()
+
+
+def main() -> None:
     parser = argparse.ArgumentParser(prog="wes")
     sub = parser.add_subparsers(dest="command")
 

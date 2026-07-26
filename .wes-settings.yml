@@ -7,3 +7,6 @@ form_history:
   - batch_example/job.sh
   ssh:
   - hpc
+query_interval: 10
+ssh_hosts:
+- hpc

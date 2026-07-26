@@ -9,13 +9,12 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from wes.cache import JobCache
-from wes.states import State
+from web.cache import JobCache
+from web.engine import check_jobs_alive
 
 log = logging.getLogger("wes.web")
 
 STATIC_DIR = Path(__file__).parent / "static"
-RESULTS_DIR = Path("results")
 
 _poller_task: asyncio.Task | None = None
 
@@ -23,51 +22,26 @@ _poller_task: asyncio.Task | None = None
 async def _poll_running_jobs() -> None:
     while True:
         try:
-            cache = JobCache(persistent=True)
-            try:
-                entries = cache.get_all()
-                for run_id, data in list(entries.items()):
-                    if not isinstance(data, dict):
-                        continue
-                    state = State(data.get("state", ""))
-                    if state != State.RUNNING:
-                        continue
+            cache = JobCache()
+            entries = cache.get_all()
+            for run_id, data in list(entries.items()):
+                if not isinstance(data, dict):
+                    continue
+                state = data.get("state", "")
+                if state != "RUNNING":
+                    continue
 
-                    task = JobCache.cached_task(run_id, data)
-                    if not task.jobs_ids or not task.ssh_config:
-                        continue
+                job_ids = data.get("jobs_ids", [])
+                ssh = data.get("ssh", "")
+                if not job_ids or not ssh:
+                    continue
 
-                    from wes.jobs.controller import JobController
-                    from wes.remote.runner import RemoteRunner
-
-                    runner = RemoteRunner(task.ssh_config)
-                    query_ok = runner.run_command(f"squeue -j {','.join(task.jobs_ids)} -h -o '%T'")
-                    alive_states = {"RUNNING", "PENDING", "SUSPENDED", "COMPLETING"}
-                    is_alive = False
-                    if query_ok[0] and query_ok[1]:
-                        states = {s.strip() for s in query_ok[1] if s.strip()}
-                        is_alive = bool(states & alive_states)
-
-                    if is_alive:
-                        if task.artifacts:
-                            try:
-                                controller = JobController(runner)
-                                controller.sync_artifacts(task, task._artifact_dir, task.artifacts)
-                                log.info("Task '%s': artifacts synced", task.name)
-                            except Exception as e:
-                                log.error("Artifact sync error for '%s': %s", task.name, e)
-                        cache.set(run_id, JobCache.task_to_cache_data(task))
-                    else:
-                        cache.set(
-                            run_id,
-                            {
-                                **JobCache.task_to_cache_data(task),
-                                "state": State.COMPLETED.value,
-                            },
-                        )
-                        log.info("Task '%s': completed", task.name)
-            finally:
-                cache.close()
+                if check_jobs_alive(ssh, job_ids):
+                    cache.set(run_id, data)
+                else:
+                    data["state"] = "COMPLETED"
+                    cache.set(run_id, data)
+                    log.info("Task '%s': completed", data.get("task_name", run_id))
         except Exception as e:
             log.error("Poller error: %s", e)
         await asyncio.sleep(5)
