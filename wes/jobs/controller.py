@@ -7,7 +7,6 @@ from wes.remote.runner import RemoteRunner
 
 
 class JobController:
-
     def __init__(self, runner: RemoteRunner) -> None:
         self.runner = runner
 
@@ -62,9 +61,7 @@ class JobController:
         for run_script in task.run:
             script_name = Path(run_script).name
             remote_script = f"{task._run_dir}/scripts/{script_name}"
-            self.runner.run_command(
-                f"bash {remote_script} >> pre_run_output.txt 2>&1"
-            )
+            self.runner.run_command(f"bash {remote_script} >> pre_run_output.txt 2>&1")
 
         job_name = Path(task.job).name
         job_path = f"{task._run_dir}/scripts/{job_name}"

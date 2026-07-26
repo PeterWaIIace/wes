@@ -14,7 +14,6 @@ from .tasks.tasks import Task, TaskManager
 
 
 class Processor:
-
     def __init__(self, ssh_config: str = "") -> None:
         self.ssh_config = ssh_config
         self.cache = JobCache(persistent=True)
@@ -85,25 +84,6 @@ class Processor:
         new_tasks = wes.parse(args.config)
 
         new_names = {t.name for t in new_tasks}
-
-        for _run_id, task in self.cache.clean_for_task_names(new_names):
-            if task.jobs_ids and task.ssh_config:
-                for jid in task.jobs_ids:
-                    try:
-                        import subprocess
-                        subprocess.run(
-                            ["ssh", task.ssh_config, f"scancel {jid}"],
-                            capture_output=True, text=True, check=False,
-                        )
-                    except Exception:
-                        pass
-
-        def _is_alive(task: Task) -> bool:
-            if not task.jobs_ids:
-                return False
-            return self._query_for(task).has_alive_jobs(task.jobs_ids)
-
-        self.cache.clean_dead(_is_alive)
 
         alive = {}
         for run_id, data in self.cache.get_all().items():

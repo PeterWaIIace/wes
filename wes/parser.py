@@ -3,6 +3,7 @@ from pathlib import Path
 import yaml
 from .tasks import Task
 
+
 class ConfigError(Exception):
     """Raised when a .wes config file is invalid."""
 
@@ -77,12 +78,10 @@ class WESParser:
             name=name,
             git_url=task_data["git_url"],
             branch=task_data.get("branch", ""),
-            path=task_data.get("path", "."),
+            path=task_data.get("path", ""),
             ssh_config=task_data["ssh"],
             cleanup=task_data.get("cleanup", False),
-            run=task_data.get("run", []),
-            job=task_data["job"],
-            post=task_data.get("post", ""),
+            job_script=task_data["job"],
             artifacts=task_data.get("artifacts", []),
             partition=str(task_data.get("partition", "")),
             cpus=str(task_data.get("cpus", "")),

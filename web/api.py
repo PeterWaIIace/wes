@@ -37,13 +37,9 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x1b]*\x1b\\")
 _CONFIG_CACHE: tuple[float, list[TaskConfig]] | None = None
 
 
-def _strip_ansi(text: str) -> str:
-    return _ANSI.sub("", text)
-
-
 def _read_file(path: Path) -> str:
     if path.exists():
-        return _strip_ansi(path.read_text(encoding="utf-8", errors="replace"))
+        return _ANSI.sub("", path.read_text(encoding="utf-8", errors="replace"))
     return ""
 
 
@@ -184,11 +180,7 @@ def delete_task(name: str) -> dict:
         for run_id, data in list((cache.get_all() or {}).items()):
             if not isinstance(data, dict):
                 continue
-            matches = (
-                data.get("task_name") == name
-                or data.get("run_id") == name
-                or run_id == name
-            )
+            matches = data.get("task_name") == name or data.get("run_id") == name or run_id == name
             if not matches:
                 continue
             task = JobCache.cached_task(run_id, data)
@@ -320,9 +312,12 @@ def launch_job(req: LaunchJobRequest) -> dict:
             for jid in task.jobs_ids:
                 try:
                     import subprocess
+
                     subprocess.run(
                         ["ssh", task.ssh_config, f"scancel {jid}"],
-                        capture_output=True, text=True, check=False,
+                        capture_output=True,
+                        text=True,
+                        check=False,
                     )
                 except Exception:
                     pass

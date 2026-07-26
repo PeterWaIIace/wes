@@ -3,15 +3,17 @@ from __future__ import annotations
 import subprocess
 
 
-class RemoteRunner:
-    def __init__(self, ssh_config: str) -> None:
+class SshRunner:
+    def __init__(self, ssh_config: str, path_prefix : str = "") -> None:
         self.ssh_config = ssh_config
+        self.path_prefix = path_prefix
 
     def log(self, msg: str, kind: str = "•") -> None:
         print(f"  {kind} {msg}")
 
-    def _ssh_run(self, ssh_config: str, cmd: str, script: str | None = None) -> tuple[bool, list[str]]:
-        print(f"  • running command: {cmd}")
+    def _ssh_run(
+        self, ssh_config: str, cmd: str, script: str | None = None
+    ) -> tuple[bool, list[str]]:
         result = subprocess.run(
             ["ssh", ssh_config, cmd],
             input=script,
@@ -22,7 +24,7 @@ class RemoteRunner:
         print("result:", result)
         if result.returncode != 0:
             print(f"ssh command failed: {result.stderr}")
-            return False ,[]
+            return False, []
         print("--------------")
         return True, [
             line
@@ -31,7 +33,11 @@ class RemoteRunner:
         ]
 
     def run_command(self, cmd: str, script: str | None = None) -> tuple[bool, list[str]]:
-        return self._ssh_run(self.ssh_config, cmd, script)
+        try:
+            return self._ssh_run(self.ssh_config, cmd, script)
+        except Exception as e:
+            print(f"Error running command '{cmd}': {e}")
+            return False, []
 
     def create_dir(self, dir: str) -> bool:
         self.log(f"creating run dir {dir}", "▶")
@@ -59,7 +65,9 @@ class RemoteRunner:
             self.log("no file specified for SCP", "⚠")
             return False
         dest = f"{self.ssh_config}:{dir}/"
+        print("Copying file to remote:", file, "to", dest)
         cmd = ["scp", file, dest]
+        print(f"cmd: {cmd}")
         if r:
             cmd = ["scp", "-r", file, dest]
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)

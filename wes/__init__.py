@@ -4,6 +4,7 @@ from wes.cluster import Cluster
 from wes.clusters.node import NodeCapacity, NodeInfo
 from wes.jobs.job import JobInfo
 
+
 class WES:
     def __init__(self, ssh_config: str):
         self.ssh_config = ssh_config

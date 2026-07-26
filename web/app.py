@@ -41,9 +41,7 @@ async def _poll_running_jobs() -> None:
                     from wes.remote.runner import RemoteRunner
 
                     runner = RemoteRunner(task.ssh_config)
-                    query_ok = runner.run_command(
-                        f"squeue -j {','.join(task.jobs_ids)} -h -o '%T'"
-                    )
+                    query_ok = runner.run_command(f"squeue -j {','.join(task.jobs_ids)} -h -o '%T'")
                     alive_states = {"RUNNING", "PENDING", "SUSPENDED", "COMPLETING"}
                     is_alive = False
                     if query_ok[0] and query_ok[1]:

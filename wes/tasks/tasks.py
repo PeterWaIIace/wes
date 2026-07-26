@@ -7,21 +7,14 @@ from .states import State
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x1b]*\x1b\\")
 
-
-def _strip_ansi(text: str) -> str:
-    return _ANSI.sub("", text)
-
-
 class Task:
     def __init__(
         self,
         name: str,
         git_url: str,
-        path: str,
-        run: list[str] | None = None,
-        post: str = "",
+        path: str = "",
         ssh_config: str = "",
-        job: str | None = None,
+        job_script: str | None = None,
         branch: str = "",
         cleanup: bool = False,
         artifacts: list[str] | None = None,
@@ -33,16 +26,13 @@ class Task:
         memory: str = "",
         time: str = "",
         nodelist: str = "",
-        run_id: str = "",
     ) -> None:
         self.name = name
         self.ssh_config = ssh_config
         self.git_url = git_url
         self.branch = branch
         self.path = path
-        self.job = job
-        self.run = run if run is not None else []
-        self.post = post
+        self.job_script = job_script
         self.cleanup_git = cleanup
         self.status = state
         self.jobs_ids: list[str] = active_jobs if active_jobs is not None else []
@@ -53,11 +43,6 @@ class Task:
         self.memory = memory
         self.time = time
         self.nodelist = nodelist
-        self.run_id = run_id or f"{name}-{uuid.uuid4().hex[:8]}"
-
-    @property
-    def _run_dir(self) -> str:
-        return f"runs/{self.run_id}"
 
     @property
     def _git_name(self) -> str:
@@ -65,28 +50,16 @@ class Task:
 
     @property
     def _artifact_dir(self) -> str:
-        return f"{self._run_dir}/{self._git_name}/{self.path}"
+        return f"{self._git_name}/{self.path}"
 
     def getStatus(self) -> State:
         return self.status
 
-    def _sbatch_overrides(self) -> str:
-        parts: list[str] = []
-        if self.partition:
-            parts.append(f"--partition={self.partition}")
-        if self.cpus:
-            parts.append(f"--cpus-per-task={self.cpus}")
-        if self.gpus:
-            parts.append(f"--gres=gpu:{self.gpus}")
-        if self.memory:
-            parts.append(f"--mem={self.memory}")
-        if self.time:
-            parts.append(f"--time={self.time}")
-        if self.nodelist:
-            parts.append(f"--nodelist={self.nodelist}")
-        return " ".join(parts)
+    def __repr__(self) -> str:
+        return f"Task(name={self.name}, git_url={self.git_url}, path={self.path}, ssh_config={self.ssh_config}, job={self.job_script}, branch={self.branch}, cleanup_git={self.cleanup_git}, artifacts={self.artifacts}, partition={self.partition}, cpus={self.cpus}, gpus={self.gpus}, memory={self.memory}, time={self.time}, nodelist={self.nodelist})"
 
 
+# I am not sure if I like this task manager class 
 class TaskManager:
     def __init__(self, tasks: list[Task] | dict[str, Task] | None = None) -> None:
         if tasks is None:

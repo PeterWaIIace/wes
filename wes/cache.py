@@ -131,8 +131,6 @@ class JobCache:
             path=data.get("path", "."),
             ssh_config=data.get("ssh", ""),
             job=data.get("job", ""),
-            run=data.get("run", []),
-            post=data.get("post", ""),
             artifacts=data.get("artifacts", []),
             cleanup=data.get("cleanup", False),
             active_jobs=data.get("jobs_ids", []),
