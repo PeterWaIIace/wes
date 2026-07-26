@@ -48,6 +48,7 @@ class SshItem(MirrorItem):
         print(f"Copying {self.h_path}/{self.h_name} to {self.r_path} result: {result}")
 
     def sync(self):
+        print("SSHItem.sync() called for", self.r_path, self.r_name, "to", self.h_path, self.h_name)
         self.ssh.scp_from(self.r_path, self.r_name, self.h_path + "/" + self.h_name, r=True)
 
 class JobConfig(SshItem):
@@ -55,7 +56,7 @@ class JobConfig(SshItem):
     def __init__(self, job: Job, task: Task, r_path: str, ssh_config: str):
         self.task = task
         self.job = job
-        self.h_path =   f"{self.job.job_name}/{self.task.name}_config.json"
+        self.h_path =   f"results/{self.job.job_name}/{self.task.name}_config.json"
         self._save_job_config_json()
         super().__init__(str(self.h_path), r_path, ssh_config)
 
@@ -64,6 +65,7 @@ class JobConfig(SshItem):
             "job": {
                 "namespace": self.job.namespace,
                 "job_name": self.job.job_name,
+                "ssh_config": self.job.ssh_config,
             },
             "task": {
                 "name": self.task.name,
@@ -106,7 +108,6 @@ class ClientSsh(ClientItem):
         if self.job_path:
             cmd = f"cd {self.job_path} && {cmd}"
 
-        print(f"executing cmd: {cmd}")
         ok, result = self.ssh.run_command(cmd)
         return ok, result
 
@@ -133,8 +134,9 @@ class Job:
     def _setup_artifacts(self):
         self.artifacts = [] 
         for path in self.task.artifacts:
-            h_path = f"{self.repo_dir}/{path}"
-            r_path = f"results/{self.repo_dir}/{path}"
+            h_path = f"results/{self.repo_dir}/{path}"
+            Path(h_path).parent.mkdir(parents=True, exist_ok=True)
+            r_path = f"{self.repo_dir}/{path}"
             self.artifacts.append(
                 SshItem(
                     h_path=h_path, 
@@ -170,10 +172,8 @@ class Job:
         self.script.copy()
 
     def execute_job(self) -> State:
-
         job_path = self.script.r_path
         sbatch_cmd = f"sbatch --parsable --job-name={self.job_name}"
         sbatch_cmd += f" ./{self.script.r_name}"
 
-        print(sbatch_cmd)
         ok, result = self.job_ssh_client.cmd(sbatch_cmd)

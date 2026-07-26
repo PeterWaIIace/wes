@@ -72,7 +72,6 @@ class SshRunner:
         dest = f"{self.ssh_config}:{dir}/"
         print("Copying file to remote:", file, "to", dest)
         cmd = ["scp", file, dest]
-        print(f"cmd: {cmd}")
         if r:
             cmd = ["scp", "-r", file, dest]
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -83,10 +82,7 @@ class SshRunner:
             return False
         return True
 
-    def scp_from(self, remote_path: str, tfile: str, cfile: str, r: bool = False) -> bool:
-        if not tfile or not cfile:
-            self.log("no file specified for SCP", "⚠")
-            return False
+    def scp_from(self, remote_path: str, tfile: str = "", cfile: str = "", r: bool = False) -> bool:
         src = f"{self.ssh_config}:{remote_path}/{tfile}"
         cmd = ["rsync", "-e", "ssh", src, cfile]
         if r:
