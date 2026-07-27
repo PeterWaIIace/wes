@@ -243,9 +243,12 @@ def list_jobs() -> list[JobSummary]:
     for ssh in _known_ssh_hosts():
         user = _get_ssh_user(ssh)
         try:
-            squeue_jobs = JobsQuery(ssh).get()
+            query = JobsQuery(ssh)
+            squeue_jobs = query.get()
+            recent_jobs = query.get_recent(user=user, hours=48) if user else []
         except Exception:
             continue
+
         for j in squeue_jobs:
             if user and j.user != user:
                 continue
@@ -272,6 +275,32 @@ def list_jobs() -> list[JobSummary]:
                     nodelist=j.nodes,
                 )
             )
+
+        for j in recent_jobs:
+            if j.job_id in seen:
+                continue
+            seen.add(j.job_id)
+            cached = cache_idx.get(j.job_id, {})
+            jobs.append(
+                JobSummary(
+                    job_id=j.job_id,
+                    task_name=cached.get("task_name") or j.name,
+                    state=j.state,
+                    run_id=cached.get("run_id", ""),
+                    jobs_ids=cached.get("jobs_ids", []),
+                    git_url=cached.get("git_url", ""),
+                    branch=cached.get("branch", ""),
+                    ssh=ssh,
+                    job=cached.get("job", ""),
+                    partition=j.partition,
+                    cpus=j.cpus,
+                    gpus=cached.get("gpus", ""),
+                    memory=j.memory,
+                    time=j.time,
+                    nodelist=j.nodes,
+                )
+            )
+
     return jobs
 
 
@@ -283,7 +312,29 @@ def get_job(job_id: str) -> JobSummary:
 
     for ssh in _known_ssh_hosts():
         try:
-            for j in JobsQuery(ssh).get():
+            query = JobsQuery(ssh)
+            for j in query.get():
+                if j.job_id == job_id:
+                    cached = cache_idx.get(j.job_id, {})
+                    return JobSummary(
+                        job_id=j.job_id,
+                        task_name=cached.get("task_name") or j.name,
+                        state=j.state,
+                        run_id=cached.get("run_id", ""),
+                        jobs_ids=cached.get("jobs_ids", []),
+                        git_url=cached.get("git_url", ""),
+                        branch=cached.get("branch", ""),
+                        ssh=ssh,
+                        job=cached.get("job", ""),
+                        partition=j.partition,
+                        cpus=j.cpus,
+                        gpus=cached.get("gpus", ""),
+                        memory=j.memory,
+                        time=j.time,
+                        nodelist=j.nodes,
+                    )
+            user = _get_ssh_user(ssh)
+            for j in query.get_recent(user=user, hours=48):
                 if j.job_id == job_id:
                     cached = cache_idx.get(j.job_id, {})
                     return JobSummary(

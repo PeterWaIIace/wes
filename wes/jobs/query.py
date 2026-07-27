@@ -37,3 +37,37 @@ class JobsQuery:
                 )
             )
         return jobs
+
+    def get_recent(self, user: str = "", hours: int = 24) -> list[JobInfo]:
+        fmt = "%i|%u|%j|%T|%M|%N|%P|%R|%C|%m"
+        user_flag = f"-u {user}" if user else ""
+        lines = _ssh_run(
+            self.ssh_config,
+            f"sacct {user_flag} --hours={hours} -o '{fmt}' --noheader",
+        )
+        jobs: list[JobInfo] = []
+        for line in lines:
+            parts = line.split("|")
+            if len(parts) < 10:
+                continue
+            job_id = parts[0].strip()
+            if "." in job_id:
+                continue
+            state = parts[3].strip()
+            if state in ("PENDING", "RUNNING", "SUSPENDED", "COMPLETING"):
+                continue
+            jobs.append(
+                JobInfo(
+                    job_id=job_id,
+                    user=parts[1].strip(),
+                    name=parts[2].strip(),
+                    state=state,
+                    time=parts[4].strip(),
+                    nodes=parts[5].strip(),
+                    partition=parts[6].strip(),
+                    reason=parts[7].strip(),
+                    cpus=parts[8].strip(),
+                    memory=parts[9].strip(),
+                )
+            )
+        return jobs
