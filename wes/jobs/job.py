@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-from wes.tasks.tasks import Task
+import json
+import secrets
 from dataclasses import dataclass
-
 from pathlib import Path
 
-from wes.states import State
 from wes.remote.runner import SshRunner
+from wes.states import State
+from wes.tasks.tasks import Task
 
-import secrets
-import json
 
 @dataclass
 class JobInfo:
@@ -24,6 +23,7 @@ class JobInfo:
     cpus: str
     memory: str
 
+
 class MirrorItem:
     def __init__(self, h_path: str, r_path: str):
         self.h_path = "/".join(h_path.split("/")[:-1])
@@ -37,8 +37,8 @@ class MirrorItem:
     def sync(self):
         pass
 
-class SshItem(MirrorItem):
 
+class SshItem(MirrorItem):
     def __init__(self, h_path: str, r_path: str, ssh_config: str):
         self.ssh = SshRunner(ssh_config)
         super().__init__(h_path, r_path)
@@ -51,12 +51,12 @@ class SshItem(MirrorItem):
         print("SSHItem.sync() called for", self.r_path, self.r_name, "to", self.h_path, self.h_name)
         self.ssh.scp_from(self.r_path, self.r_name, self.h_path + "/" + self.h_name, r=True)
 
-class JobConfig(SshItem):
 
+class JobConfig(SshItem):
     def __init__(self, job: Job, task: Task, r_path: str, ssh_config: str):
         self.task = task
         self.job = job
-        self.h_path =   f"results/{self.job.job_name}/{self.task.name}_config.json"
+        self.h_path = f"results/{self.job.job_name}/{self.task.name}_config.json"
         self._save_job_config_json()
         super().__init__(str(self.h_path), r_path, ssh_config)
 
@@ -90,15 +90,15 @@ class JobConfig(SshItem):
             json.dump(config, f, indent=4)
 
 
-class ClientItem():
+class ClientItem:
     def __init__(self, job_path: str):
         self.job_path = job_path
 
     def cmd(self):
         raise NotImplementedError("cmd() must be implemented in subclasses")
 
-class ClientSsh(ClientItem):
 
+class ClientSsh(ClientItem):
     def __init__(self, job_path: str, ssh_config: str):
         self.ssh = SshRunner(ssh_config)
         self.ssh.create_dir(job_path)
@@ -110,6 +110,7 @@ class ClientSsh(ClientItem):
 
         ok, result = self.ssh.run_command(cmd)
         return ok, result
+
 
 class Job:
     def __init__(self, task: Task, ssh_config: str, namespace: str | None = None):
@@ -132,18 +133,18 @@ class Job:
         self._setup_job_config()
 
     def _setup_artifacts(self):
-        self.artifacts = [] 
+        self.artifacts = []
         for path in self.task.artifacts:
             h_path = f"results/{self.repo_dir}/{path}"
             Path(h_path).parent.mkdir(parents=True, exist_ok=True)
             r_path = f"{self.repo_dir}/{path}"
-            self.artifacts.append(
-                SshItem(
-                    h_path=h_path, 
-                    r_path=r_path, 
-                    ssh_config=self.ssh_config
-                )
-            )
+            self.artifacts.append(SshItem(h_path=h_path, r_path=r_path, ssh_config=self.ssh_config))
+        
+        for log_name in ("job_output.txt", "job_error.txt"):
+            h_path = f"results/{self.job_dir}/{log_name}"
+            Path(h_path).parent.mkdir(parents=True, exist_ok=True)
+            r_path = f"{self.job_dir}/{log_name}"
+            self.artifacts.append(SshItem(h_path=h_path, r_path=r_path, ssh_config=self.ssh_config))
 
     def _setup_scripts(self):
         job_script = self.task.job_script.split("/")[-1]

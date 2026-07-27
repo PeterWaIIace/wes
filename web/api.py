@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import logging
 import re
 from pathlib import Path
@@ -43,6 +44,45 @@ def _read_file(path: Path) -> str:
     if path.exists():
         return _ANSI.sub("", path.read_text(encoding="utf-8", errors="replace"))
     return ""
+
+
+def _find_local_config(job_id: str) -> dict | None:
+    for config_path in RESULTS_DIR.glob(f"*_{job_id}/*_config.json"):
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            continue
+    return None
+
+
+_REMOTE_KIND_MAP = {
+    ".mp4": "video",
+    ".zip": "model",
+    ".csv": "csv",
+    ".png": "image",
+    ".jpg": "image",
+    ".jpeg": "image",
+    ".gif": "image",
+    ".webp": "image",
+}
+
+
+def _parse_remote_files(lines: list[str]) -> list[dict]:
+    artifacts: list[dict] = []
+    for line in lines:
+        path = line.strip()
+        if not path:
+            continue
+        suffix = Path(path).suffix.lower()
+        artifacts.append(
+            {
+                "name": Path(path).name,
+                "kind": _REMOTE_KIND_MAP.get(suffix, "file"),
+                "path": path,
+            }
+        )
+    return artifacts
 
 
 def _known_ssh_hosts() -> list[str]:
@@ -215,6 +255,7 @@ def delete_task(name: str) -> dict:
 def _get_ssh_user(ssh: str) -> str:
     try:
         from wes.remote.runner import SshRunner
+
         return SshRunner(ssh).get_user()
     except Exception:
         return ""
@@ -235,9 +276,11 @@ def _build_cache_index() -> dict[str, dict]:
 @router.get("/jobs", response_model=list[JobSummary])
 def list_jobs() -> list[JobSummary]:
     from wes.jobs.query import JobsQuery
+    from wes.jobs.scanner import JobScanner
 
     cache_idx = _build_cache_index()
     seen: set[str] = set()
+    seen_namespaces: set[str] = set()
     jobs: list[JobSummary] = []
 
     for ssh in _known_ssh_hosts():
@@ -256,6 +299,8 @@ def list_jobs() -> list[JobSummary]:
                 continue
             seen.add(j.job_id)
             cached = cache_idx.get(j.job_id, {})
+            if cached.get("run_id"):
+                seen_namespaces.add(cached["run_id"])
             jobs.append(
                 JobSummary(
                     job_id=j.job_id,
@@ -281,6 +326,8 @@ def list_jobs() -> list[JobSummary]:
                 continue
             seen.add(j.job_id)
             cached = cache_idx.get(j.job_id, {})
+            if cached.get("run_id"):
+                seen_namespaces.add(cached["run_id"])
             jobs.append(
                 JobSummary(
                     job_id=j.job_id,
@@ -300,6 +347,33 @@ def list_jobs() -> list[JobSummary]:
                     nodelist=j.nodes,
                 )
             )
+
+    for ssh in _known_ssh_hosts():
+        try:
+            scanner = JobScanner(ssh)
+            for job in scanner.scan():
+                if job.namespace in seen_namespaces:
+                    continue
+                seen_namespaces.add(job.namespace)
+                jobs.append(
+                    JobSummary(
+                        job_id=job.namespace,
+                        task_name=job.task.name,
+                        state="COMPLETED",
+                        run_id=job.namespace,
+                        git_url=job.task.git_url,
+                        branch=job.task.branch,
+                        ssh=ssh,
+                        partition=job.task.partition,
+                        cpus=job.task.cpus,
+                        gpus=job.task.gpus,
+                        memory=job.task.memory,
+                        time=job.task.time,
+                        nodelist=job.task.nodelist,
+                    )
+                )
+        except Exception:
+            continue
 
     return jobs
 
@@ -356,6 +430,31 @@ def get_job(job_id: str) -> JobSummary:
                     )
         except Exception:
             pass
+
+    for config_path in RESULTS_DIR.glob(f"*_{job_id}/*_config.json"):
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                config = json.load(f)
+            t = config.get("task", {})
+            j = config.get("job", {})
+            return JobSummary(
+                job_id=j.get("namespace", job_id),
+                task_name=t.get("name", ""),
+                state="COMPLETED",
+                run_id=j.get("namespace", ""),
+                git_url=t.get("git_url", ""),
+                branch=t.get("branch", ""),
+                ssh=j.get("ssh_config", ""),
+                partition=t.get("partition", ""),
+                cpus=t.get("cpus", ""),
+                gpus=t.get("gpus", ""),
+                memory=t.get("memory", ""),
+                time=t.get("time", ""),
+                nodelist=t.get("nodelist", ""),
+            )
+        except Exception:
+            continue
+
     raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
 
 
@@ -397,6 +496,18 @@ def get_job_remote_logs(job_id: str) -> dict[str, str]:
                     }
         except Exception:
             pass
+
+    config = _find_local_config(job_id)
+    if config:
+        ssh = config.get("job", {}).get("ssh_config", "")
+        task_name = config.get("task", {}).get("name", "")
+        job_dir = f"{task_name}/{job_id}"
+        return {
+            "stdout": read_remote_log(ssh, f"{job_dir}/job_output.txt"),
+            "stderr": read_remote_log(ssh, f"{job_dir}/job_error.txt"),
+            "pre_run": read_remote_log(ssh, f"{job_dir}/pre_run_output.txt"),
+        }
+
     raise HTTPException(status_code=404, detail="Job not available")
 
 
@@ -414,38 +525,36 @@ def get_job_remote_artifacts(job_id: str) -> list[dict]:
                 if j.job_id == job_id:
                     name = cached.get("task_name") or j.name
                     runner = SshRunner(ssh)
-                    ok, lines = runner.run_command(
-                        f"find {name} -type f 2>/dev/null"
-                    )
+                    ok, lines = runner.run_command(f"find {name} -type f 2>/dev/null")
                     if not ok:
                         return []
-                    artifacts: list[dict] = []
-                    for line in lines:
-                        path = line.strip()
-                        if not path:
-                            continue
-                        suffix = Path(path).suffix.lower()
-                        kind_map = {
-                            ".mp4": "video", ".zip": "model", ".csv": "csv",
-                            ".png": "image", ".jpg": "image", ".jpeg": "image",
-                            ".gif": "image", ".webp": "image",
-                        }
-                        artifacts.append({
-                            "name": Path(path).name,
-                            "kind": kind_map.get(suffix, "file"),
-                            "path": path,
-                        })
-                    return artifacts
+                    return _parse_remote_files(lines)
         except Exception:
             pass
+
+    for config_path in RESULTS_DIR.glob(f"*_{job_id}/*_config.json"):
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                config = json.load(f)
+            ssh = config.get("job", {}).get("ssh_config", "")
+            task_name = config.get("task", {}).get("name", "")
+            job_dir = f"{task_name}/{job_id}"
+            runner = SshRunner(ssh)
+            ok, lines = runner.run_command(f"find {job_dir} -type f 2>/dev/null")
+            if not ok:
+                return []
+            return _parse_remote_files(lines)
+        except Exception:
+            continue
     return []
 
 
 @router.get("/jobs/{job_id}/remote-artifacts/{path:path}")
 def serve_job_remote_artifact(job_id: str, path: str):
+    import subprocess
+    import tempfile
+
     from wes.jobs.query import JobsQuery
-    from wes.remote.runner import SshRunner
-    import tempfile, subprocess
 
     for ssh in _known_ssh_hosts():
         try:
@@ -454,7 +563,9 @@ def serve_job_remote_artifact(job_id: str, path: str):
                     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=Path(path).suffix)
                     result = subprocess.run(
                         ["scp", f"{ssh}:{path}", tmp.name],
-                        capture_output=True, text=True, check=False,
+                        capture_output=True,
+                        text=True,
+                        check=False,
                     )
                     if result.returncode == 0:
                         return FileResponse(tmp.name, filename=Path(path).name)
@@ -476,7 +587,9 @@ def get_job_remote_csv(job_id: str) -> ProgressData:
             for j in JobsQuery(ssh).get():
                 if j.job_id == job_id:
                     name = cached.get("task_name") or j.name
-                    csv_paths = _ssh_run(ssh, f"find {name} -name '*.csv' -type f 2>/dev/null | head -1")
+                    csv_paths = _ssh_run(
+                        ssh, f"find {name} -name '*.csv' -type f 2>/dev/null | head -1"
+                    )
                     if not csv_paths:
                         return ProgressData()
                     content_lines = _ssh_run(ssh, f"cat {csv_paths[0].strip()}")

@@ -119,3 +119,9 @@ Components:
 - **artifact-list** — videos, models, images, data files
 - **settings-list** — removable item list
 - **slurm-designer** — full SLURM job designer page
+
+## Requests
+
+- Lightweight `JobScanner.scan_configs()` method that returns raw config dicts
+  without creating `Job` objects (avoids SSH mkdir/scp overhead for read-only
+  discovery)
