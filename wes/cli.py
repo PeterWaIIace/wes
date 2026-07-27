@@ -20,7 +20,7 @@ def _run(args: argparse.Namespace) -> None:
     from wes.engine import Engine
 
     engine = Engine()
-    engine.start_jobs()
+    engine.start_jobs(task_file=args.config)
 
 
 def main() -> None:

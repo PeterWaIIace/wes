@@ -73,6 +73,7 @@ class JobConfig(SshItem):
                 "path": self.task.path,
                 "ssh_config": self.task.ssh_config,
                 "job_script": self.task.job_script,
+                "pre_script": self.task.pre_script,
                 "branch": self.task.branch,
                 "cleanup": self.task.cleanup_git,
                 "artifacts": self.task.artifacts,
@@ -125,11 +126,13 @@ class Job:
 
         self.artifacts = []
         self.script = None
+        self.pre_script = None
 
         self.job_ssh_client = ClientSsh(self.job_dir, ssh_config)
 
         self._setup_artifacts()
         self._setup_scripts()
+        self._setup_pre_script()
         self._setup_job_config()
 
     def _setup_artifacts(self):
@@ -157,6 +160,19 @@ class Job:
             ssh_config=self.ssh_config
         )
 
+    def _setup_pre_script(self):
+        if not self.task.pre_script:
+            return
+        pre_script = self.task.pre_script.split("/")[-1]
+        r_path = f"{self.job_dir}/{pre_script}"
+        h_path = f"{self.task.pre_script}"
+        print(f"Setting up pre-script: {h_path} to {r_path}")
+        self.pre_script = SshItem(
+            h_path=h_path,
+            r_path=r_path,
+            ssh_config=self.ssh_config
+        )
+
     def _setup_job_config(self):
         print(f"{self.job_dir}/{self.task.name}_config.json")
         self.job_conf = JobConfig(self, self.task, f"{self.job_dir}/{self.task.name}_config.json", self.ssh_config)
@@ -171,8 +187,32 @@ class Job:
 
     def upload_scripts(self) -> None:
         self.script.copy()
+        if self.pre_script:
+            self.pre_script.copy()
+
+    def _clone_repo(self) -> bool:
+        git_name = self.task.git_url.split("/")[-1].replace(".git", "")
+        if self.task.branch:
+            clone_cmd = f"git clone -b {self.task.branch} {self.task.git_url} {git_name}"
+        else:
+            clone_cmd = f"git clone {self.task.git_url} {git_name}"
+        ok, result = self.job_ssh_client.cmd(clone_cmd)
+        if not ok:
+            print(f"Clone failed: {result}")
+        return ok
 
     def execute_job(self) -> State:
+        if not self._clone_repo():
+            return State.FAILED
+
+        if self.pre_script:
+            ok, result = self.job_ssh_client.cmd(f"ls .")
+            ok, result = self.job_ssh_client.cmd(f"./{self.pre_script.r_name}")
+            print(f"Pre-script output:\n{result}")
+            if not ok:
+                print(f"Pre-script failed: {result}")
+                return State.FAILED
+
         job_path = self.script.r_path
         sbatch_cmd = f"sbatch --parsable --job-name={self.job_name}"
         sbatch_cmd += f" ./{self.script.r_name}"

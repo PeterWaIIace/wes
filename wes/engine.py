@@ -18,9 +18,9 @@ class Engine:
         self.job_scanners = {}
         self.jobs = {}
 
-    def start_jobs(self):
+    def start_jobs(self, task_file: str = "task.wes"):
         wes = WESParser()
-        new_tasks = wes.parse("task.wes")
+        new_tasks = wes.parse(task_file)
 
         for task in new_tasks:
             self.current_users[task.ssh_config] = User(task.ssh_config)

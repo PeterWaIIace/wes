@@ -16,6 +16,7 @@ VALID_FIELDS = {
     "ssh",
     "job",
     "run",
+    "pre",
     "post",
     "artifacts",
     "cleanup",
@@ -82,6 +83,7 @@ class WESParser:
             ssh_config=task_data["ssh"],
             cleanup=task_data.get("cleanup", False),
             job_script=task_data["job"],
+            pre_script=task_data.get("pre"),
             artifacts=task_data.get("artifacts", []),
             partition=str(task_data.get("partition", "")),
             cpus=str(task_data.get("cpus", "")),
@@ -109,6 +111,9 @@ def _validate_task(name: str, data: dict) -> None:
 
     if not isinstance(data["job"], str) or not data["job"].strip():
         raise ConfigError(f"Task '{name}': 'job' must be a non-empty string")
+
+    if "pre" in data and (not isinstance(data["pre"], str) or not data["pre"].strip()):
+        raise ConfigError(f"Task '{name}': 'pre' must be a non-empty string")
 
     for field in ("run", "artifacts"):
         val = data.get(field)

@@ -3,6 +3,8 @@ sequence:
         git_url: ssh://git@ben.ii.pw.edu.pl:9000/pwalas/swarm-gym.git
         branch: Piotr/verifying-control-algorihtms
         ssh: hpc
+        pre:
+            batch_example/pre.sh
         job: 
             batch_example/job.sh
         artifacts: # folder to sync with
@@ -12,4 +14,4 @@ sequence:
         cpus: '1'
         gpus: '1'
         memory: 4G
-        nodelist: h32
+        nodelist: h86

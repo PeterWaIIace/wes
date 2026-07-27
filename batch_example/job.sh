@@ -8,7 +8,7 @@
 #SBATCH --cpus-per-task=4          # liczba CPU na zadanie
 #SBATCH --gres=gpu:1               # liczba i typ gpu
 #SBATCH --mem=16G                  # pamięć RAM
-#SBATCH --time=02:00:00            # maksymalny czas wykonania
+#SBATCH --time=00:45:00            # maksymalny czas wykonania
 
 # --- Komendy do wykonania ---
 echo "=== Job started: $(date) ==="
@@ -16,6 +16,8 @@ echo "Host: $(hostname)"
 echo "GPU: $(nvidia-smi -L 2>/dev/null || echo 'none')"
 
 module load uv
+which uv || echo "uv not found after module load"
+echo "PATH=$PATH"
 cd swarm-gym
 uv sync --active
 set -x

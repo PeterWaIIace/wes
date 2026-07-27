@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 import subprocess
 
 
@@ -20,7 +21,7 @@ class SshRunner:
         self, ssh_config: str, cmd: str, script: str | None = None
     ) -> tuple[bool, list[str]]:
         result = subprocess.run(
-            ["ssh", ssh_config, cmd],
+            ["ssh", ssh_config, f"bash -lc {shlex.quote(cmd)}"],
             input=script,
             capture_output=True,
             text=True,
@@ -98,7 +99,7 @@ class SshRunner:
 
 def _ssh_run(ssh_config: str, cmd: str) -> list[str]:
     result = subprocess.run(
-        ["ssh", ssh_config, cmd],
+        ["ssh", ssh_config, f"bash -lc {shlex.quote(cmd)}"],
         capture_output=True,
         text=True,
         check=False,
