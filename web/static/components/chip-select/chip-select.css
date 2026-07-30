@@ -1,0 +1,19 @@
+:host { display: block; }
+.cs-group { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+.cs-chip {
+    padding: 0.2rem 0.6rem;
+    border-radius: 99px;
+    font-size: 0.72rem;
+    font-weight: 500;
+    background: var(--bg-surface, #f7f8fa);
+    color: var(--text-muted, #9aa0a6);
+    border: 1px solid var(--border, #e2e4e8);
+    cursor: pointer;
+    transition: all 0.12s;
+    font-family: inherit;
+}
+.cs-chip:hover, .cs-chip.active {
+    background: var(--primary, #004a6c);
+    color: #fff;
+    border-color: var(--primary, #004a6c);
+}

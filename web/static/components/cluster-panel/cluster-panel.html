@@ -1,0 +1,30 @@
+<div class="cp-panel">
+    <div class="cp-header">
+        <h2>Cluster</h2>
+        <div class="cp-bar">
+            <label>SSH</label>
+            <input type="text" id="ssh-input" class="cp-input" placeholder="host or config">
+            <button class="cp-btn cp-btn-primary" id="query-btn">Query</button>
+            <span id="cluster-status" class="cp-status"></span>
+        </div>
+    </div>
+    <div id="cluster-error"></div>
+    <div id="nodes-section" style="display:none">
+        <div class="cp-header" style="border-bottom:1px solid var(--border-subtle,#ececee);border-top:none">
+            <h2>Nodes</h2>
+            <span id="node-count" class="cp-meta"></span>
+        </div>
+        <div id="node-grid" class="cp-node-grid"></div>
+    </div>
+    <div id="jobs-panel" style="display:none">
+        <div class="cp-header">
+            <h2 id="jobs-title">Jobs</h2>
+            <div id="jobs-controls" style="display:none">
+                <button class="cp-btn" id="show-all-btn">Show all</button>
+            </div>
+        </div>
+        <div class="cp-body flush">
+            <jobs-table id="jobs-tbl"></jobs-table>
+        </div>
+    </div>
+</div>

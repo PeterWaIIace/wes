@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}wes - Job {{ job_id }}{% endblock %}
+
+{% block content %}
+<h1>Job <span class="mono" id="job-id"></span> <span class="badge" id="job-state"></span></h1>
+
+<div class="task-info-row" id="job-info"></div>
+
+<log-viewer id="log-viewer">
+    <span slot="default">Logs</span>
+</log-viewer>
+
+<div class="panel" id="progress-panel" style="display:none">
+    <div class="panel-header">
+        <h2>Progress</h2>
+    </div>
+    <div class="panel-body">
+        <div class="chart-container">
+            <canvas id="progress-chart"></canvas>
+        </div>
+    </div>
+</div>
+
+<artifact-list id="artifact-list"></artifact-list>
+{% endblock %}
+
+{% block scripts %}
+<script type="module">
+const jobId = {{ job_id|tojson|safe }};
+
+async function loadJob() {
+    try {
+        const resp = await fetch('/api/jobs/' + encodeURIComponent(jobId));
+        if (!resp.ok) throw new Error('Job not found');
+        const job = await resp.json();
+
+        document.getElementById('job-id').textContent = job.job_id;
+        const stateEl = document.getElementById('job-state');
+        stateEl.textContent = job.state;
+        stateEl.className = 'badge badge-' + (job.state || 'unknown').toLowerCase();
+
+        const info = document.getElementById('job-info');
+        const fields = [
+            ['Task', job.task_name],
+            ['SSH', job.ssh],
+            ['Branch', job.branch],
+            ['Partition', job.partition],
+            ['CPUs', job.cpus],
+            ['GPUs', job.gpus],
+            ['Memory', job.memory],
+            ['Time', job.time],
+            ['Nodes', job.nodelist],
+        ];
+        info.innerHTML = fields
+            .filter(([, v]) => v)
+            .map(([label, value]) => `
+                <div class="task-info-item">
+                    <span class="task-info-label">${label}</span>
+                    <span class="task-info-value">${value}</span>
+                </div>
+            `).join('');
+
+        loadLogs();
+        loadArtifacts();
+        loadProgress();
+    } catch (err) {
+        document.getElementById('job-info').innerHTML =
+            '<div class="error">' + err.message + '</div>';
+    }
+}
+
+async function loadLogs() {
+    const logViewer = document.getElementById('log-viewer');
+    logViewer.tabs = [
+        { name: 'stdout', label: 'stdout' },
+        { name: 'stderr', label: 'stderr' },
+        { name: 'pre_run', label: 'pre-run' },
+    ];
+    try {
+        const resp = await fetch('/api/jobs/' + encodeURIComponent(jobId) + '/remote-logs');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        logViewer.setLogs('stdout', data.stdout || '');
+        logViewer.setLogs('stderr', data.stderr || '');
+        logViewer.setLogs('pre_run', data.pre_run || '');
+    } catch (_) {}
+}
+
+async function loadArtifacts() {
+    const artifactList = document.getElementById('artifact-list');
+    try {
+        const resp = await fetch('/api/jobs/' + encodeURIComponent(jobId) + '/remote-artifacts');
+        if (!resp.ok) return;
+        const items = await resp.json();
+        artifactList.data = items.map(a => ({
+            ...a,
+            url: '/api/jobs/' + encodeURIComponent(jobId) + '/remote-artifacts/' + encodeURIComponent(a.path),
+            sizeLabel: '',
+        }));
+    } catch (_) {}
+}
+
+async function loadProgress() {
+    try {
+        const resp = await fetch('/api/jobs/' + encodeURIComponent(jobId) + '/remote-csv');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (!data.columns || !data.columns.length) return;
+
+        document.getElementById('progress-panel').style.display = '';
+
+        const columns = data.columns;
+        const rows = data.rows;
+        const timestepsCol = columns.findIndex(c => c.includes('timestep'));
+        const rewardCol = columns.findIndex(c => c.includes('reward'));
+        const actorCol = columns.findIndex(c => c.includes('actor_loss'));
+        const criticCol = columns.findIndex(c => c.includes('critic_loss'));
+
+        const labels = [], rewardData = [], actorData = [], criticData = [];
+        rows.forEach(row => {
+            const ts = parseFloat(row[timestepsCol]);
+            if (isNaN(ts)) return;
+            labels.push(ts);
+            rewardData.push(rewardCol >= 0 ? (parseFloat(row[rewardCol]) || null) : null);
+            actorData.push(actorCol >= 0 ? (parseFloat(row[actorCol]) || null) : null);
+            criticData.push(criticCol >= 0 ? (parseFloat(row[criticCol]) || null) : null);
+        });
+
+        const datasets = [];
+        if (rewardData.some(v => v !== null)) datasets.push({ label: 'Reward', data: rewardData, borderColor: '#0d9488', tension: 0.3, yAxisID: 'y' });
+        if (actorData.some(v => v !== null)) datasets.push({ label: 'Actor Loss', data: actorData, borderColor: '#4a90d9', tension: 0.3, yAxisID: 'y1' });
+        if (criticData.some(v => v !== null)) datasets.push({ label: 'Critic Loss', data: criticData, borderColor: '#d97706', tension: 0.3, yAxisID: 'y1' });
+
+        if (datasets.length === 0) return;
+
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+        script.onload = function() {
+            new Chart(document.getElementById('progress-chart').getContext('2d'), {
+                type: 'line',
+                data: { labels, datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    scales: {
+                        x: { title: { display: true, text: 'Timesteps', color: '#9aa0a6' }, ticks: { color: '#9aa0a6' }, grid: { color: '#ececee' } },
+                        y: { position: 'left', title: { display: true, text: 'Reward', color: '#9aa0a6' }, ticks: { color: '#9aa0a6' }, grid: { color: '#ececee' } },
+                        y1: { position: 'right', title: { display: true, text: 'Loss', color: '#9aa0a6' }, ticks: { color: '#9aa0a6' }, grid: { drawOnChartArea: false } }
+                    },
+                    plugins: { legend: { labels: { color: '#5f6368', usePointStyle: true, pointStyle: 'circle' } } }
+                }
+            });
+        };
+        document.head.appendChild(script);
+    } catch (_) {}
+}
+
+loadJob();
+</script>
+{% endblock %}

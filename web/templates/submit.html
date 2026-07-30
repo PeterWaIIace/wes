@@ -9,8 +9,8 @@
         <h2>Tasks</h2>
         <div style="display:flex;gap:0.5rem;align-items:center">
             <span id="config-status" class="cluster-status-text"></span>
-            <button class="btn btn-sm" onclick="loadConfig()">Reload</button>
-            <button class="btn btn-sm btn-primary" onclick="submitAll()">Run All</button>
+            <button class="btn btn-sm" id="reload-btn">Reload</button>
+            <button class="btn btn-sm btn-primary" id="run-all-btn">Run All</button>
         </div>
     </div>
     <div id="config-error"></div>
@@ -24,7 +24,9 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script type="module">
+let taskConfigs = [];
+
 const TIME_PRESETS = [
     {label: '30m', hours: 0.5},
     {label: '1h', hours: 1},
@@ -36,7 +38,26 @@ const TIME_PRESETS = [
     {label: '7d', hours: 168},
 ];
 
-let taskConfigs = [];
+function parseMemGB(s) {
+    if (!s) return 0;
+    s = s.trim().toUpperCase();
+    if (s.endsWith('G')) return parseFloat(s);
+    if (s.endsWith('M')) return Math.round(parseInt(s) / 1024) || 1;
+    return parseInt(s) || 0;
+}
+
+function parseTimeHours(s) {
+    if (!s) return 0;
+    const parts = s.trim().split(':');
+    if (parts.length === 3) return parseInt(parts[0]) + parseInt(parts[1]) / 60;
+    return parseFloat(s) || 0;
+}
+
+function formatTime(hours) {
+    const h = Math.floor(hours);
+    const m = Math.round((hours - h) * 60);
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':00';
+}
 
 async function loadConfig() {
     const status = document.getElementById('config-status');
@@ -67,123 +88,75 @@ async function loadConfig() {
 
 function renderTiles() {
     const tiles = document.getElementById('task-tiles');
-    let html = '';
+    tiles.innerHTML = '';
     taskConfigs.forEach((t, i) => {
         const repo = t.git_url.split('/').pop().replace('.git', '');
         const memGB = parseMemGB(t.memory) || 4;
         const timeH = parseTimeHours(t.time) || 4;
         const cpus = parseInt(t.cpus) || 1;
         const gpus = parseInt(t.gpus) || 0;
-        const timePreset = TIME_PRESETS.find(p => p.hours === timeH);
 
-        html += '<div class="st-tile" id="tile-' + i + '">';
-        html += '<div class="st-header">';
-        html += '<div class="st-title">' + t.name + '</div>';
-        html += '<button class="btn btn-sm btn-primary" onclick="submitTask(' + i + ')" id="run-btn-' + i + '">Run</button>';
-        html += '</div>';
+        const tile = document.createElement('div');
+        tile.className = 'st-tile';
+        tile.id = 'tile-' + i;
+        tile.innerHTML = `
+            <div class="st-header">
+                <div class="st-title">${t.name}</div>
+                <button class="btn btn-sm btn-primary" data-action="run" data-index="${i}">Run</button>
+            </div>
+            <div class="st-info">
+                <span class="st-info-item mono">${repo}</span>
+                ${t.branch ? '<span class="st-info-item">' + t.branch + '</span>' : ''}
+                <span class="st-info-item mono">${t.ssh || ''}</span>
+            </div>
+            <div class="st-controls">
+                <div class="st-row">
+                    <div class="st-field">
+                        <label>Node</label>
+                        <input type="text" class="st-input" data-i="${i}" data-key="nodelist" value="${t.nodelist || ''}" placeholder="any">
+                    </div>
+                    <resource-slider label="Memory" min="1" max="128" value="${memGB}" suffix="G" color="mem" data-i="${i}" data-key="memory"></resource-slider>
+                </div>
+                <div class="st-row">
+                    <resource-slider label="CPUs" min="1" max="64" value="${cpus}" suffix="" color="cpu" data-i="${i}" data-key="cpus"></resource-slider>
+                    <resource-slider label="GPUs" min="0" max="8" value="${gpus}" suffix="" color="gpu" data-i="${i}" data-key="gpus"></resource-slider>
+                    <div class="st-field st-field-time">
+                        <label>Time</label>
+                        <time-chips data-i="${i}" data-hours="${timeH}"></time-chips>
+                    </div>
+                </div>
+            </div>
+        `;
+        tiles.appendChild(tile);
 
-        html += '<div class="st-info">';
-        html += '<span class="st-info-item mono">' + repo + '</span>';
-        if (t.branch) html += '<span class="st-info-item">' + t.branch + '</span>';
-        html += '<span class="st-info-item mono">' + t.ssh + '</span>';
-        html += '</div>';
-
-        html += '<div class="st-controls">';
-
-        html += '<div class="st-row">';
-        html += '<div class="st-field">';
-        html += '<label>Node</label>';
-        html += '<input type="text" class="st-input" data-i="' + i + '" data-key="nodelist" value="' + (t.nodelist || '') + '" placeholder="any">';
-        html += '</div>';
-        html += sliderField(i, 'Memory', 'memory', memGB, 1, 128, 'G', 'slider-mem');
-        html += '</div>';
-
-        html += '<div class="st-row">';
-        html += sliderField(i, 'CPUs', 'cpus', cpus, 1, 64, '', 'slider-cpu');
-        html += sliderField(i, 'GPUs', 'gpus', gpus, 0, 8, '', 'slider-gpu');
-        html += timeField(i, timeH);
-        html += '</div>';
-
-        html += '</div>';
-        html += '</div>';
+        tile.querySelector('[data-action="run"]').addEventListener('click', () => submitTask(i));
     });
-    tiles.innerHTML = html;
 
-    tiles.querySelectorAll('.st-input, .st-slider').forEach(el => {
-        el.addEventListener('input', onControlChange);
+    tiles.querySelectorAll('.st-input').forEach(el => {
+        el.addEventListener('input', e => {
+            const i = parseInt(e.target.dataset.i);
+            const key = e.target.dataset.key;
+            taskConfigs[i][key] = e.target.value;
+        });
     });
-}
 
-function sliderField(i, label, key, val, min, max, suffix, cls) {
-    let h = '<div class="st-field st-field-slider">';
-    h += '<label>' + label + ' <span class="st-val" id="val-' + i + '-' + key + '">' + val + suffix + '</span></label>';
-    h += '<input type="range" class="st-slider ' + cls + '" data-i="' + i + '" data-key="' + key + '" data-suffix="' + suffix + '" min="' + min + '" max="' + max + '" value="' + val + '">';
-    h += '</div>';
-    return h;
-}
-
-function timeField(i, hours) {
-    let h = '<div class="st-field st-field-time">';
-    h += '<label>Time</label>';
-    h += '<div class="st-time-chips">';
-    TIME_PRESETS.forEach(p => {
-        const active = p.hours === hours ? ' active' : '';
-        h += '<button type="button" class="time-preset' + active + '" data-i="' + i + '" data-hours="' + p.hours + '" onclick="setTime(' + i + ',' + p.hours + ')">' + p.label + '</button>';
+    tiles.querySelectorAll('resource-slider').forEach(slider => {
+        slider.addEventListener('slider-change', e => {
+            const i = parseInt(slider.dataset.i);
+            const key = slider.dataset.key;
+            const suffix = slider.getAttribute('suffix') || '';
+            if (key === 'memory') taskConfigs[i].memory = e.detail.value + 'G';
+            else taskConfigs[i][key] = String(e.detail.value);
+        });
     });
-    h += '</div>';
-    h += '<input type="hidden" data-i="' + i + '" data-key="time" value="' + formatTime(hours) + '">';
-    h += '</div>';
-    return h;
-}
 
-function parseMemGB(s) {
-    if (!s) return 0;
-    s = s.trim().toUpperCase();
-    if (s.endsWith('G')) return parseFloat(s);
-    if (s.endsWith('M')) return Math.round(parseInt(s) / 1024) || 1;
-    return parseInt(s) || 0;
-}
-
-function parseTimeHours(s) {
-    if (!s) return 0;
-    const parts = s.trim().split(':');
-    if (parts.length === 3) return parseInt(parts[0]) + parseInt(parts[1]) / 60;
-    return parseFloat(s) || 0;
-}
-
-function formatTime(hours) {
-    const h = Math.floor(hours);
-    const m = Math.round((hours - h) * 60);
-    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':00';
-}
-
-function onControlChange(e) {
-    const i = parseInt(e.target.dataset.i);
-    const key = e.target.dataset.key;
-    const suffix = e.target.dataset.suffix || '';
-
-    if (e.target.classList.contains('st-slider')) {
-        const valEl = document.getElementById('val-' + i + '-' + key);
-        if (valEl) valEl.textContent = e.target.value + suffix;
-        if (key === 'memory') {
-            taskConfigs[i].memory = e.target.value + 'G';
-        } else if (key === 'cpus') {
-            taskConfigs[i].cpus = e.target.value;
-        } else if (key === 'gpus') {
-            taskConfigs[i].gpus = e.target.value;
-        }
-    } else {
-        taskConfigs[i][key] = e.target.value;
-    }
-}
-
-function setTime(i, hours) {
-    const tile = document.getElementById('tile-' + i);
-    tile.querySelectorAll('.time-preset').forEach(b => b.classList.remove('active'));
-    event.target.classList.add('active');
-    const hidden = tile.querySelector('input[data-key="time"]');
-    hidden.value = formatTime(hours);
-    taskConfigs[i].time = hidden.value;
+    tiles.querySelectorAll('time-chips').forEach(tc => {
+        tc.value = parseFloat(tc.dataset.hours);
+        tc.addEventListener('time-change', e => {
+            const i = parseInt(tc.dataset.i);
+            taskConfigs[i].time = e.detail.time;
+        });
+    });
 }
 
 function collectOverrides(i) {
@@ -199,7 +172,7 @@ function collectOverrides(i) {
 }
 
 async function submitTask(i) {
-    const btn = document.getElementById('run-btn-' + i);
+    const btn = document.querySelector(`#tile-${i} [data-action="run"]`);
     btn.disabled = true;
     btn.textContent = '...';
     const result = document.getElementById('result');
@@ -236,7 +209,7 @@ async function submitAll() {
     result.textContent = lines.join('\n');
 
     for (let i = 0; i < taskConfigs.length; i++) {
-        const btn = document.getElementById('run-btn-' + i);
+        const btn = document.querySelector(`#tile-${i} [data-action="run"]`);
         btn.disabled = true;
         btn.textContent = '...';
         try {
@@ -263,6 +236,9 @@ async function submitAll() {
         result.textContent = lines.join('\n');
     }
 }
+
+document.getElementById('reload-btn').addEventListener('click', loadConfig);
+document.getElementById('run-all-btn').addEventListener('click', submitAll);
 
 loadConfig();
 </script>

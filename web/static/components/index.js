@@ -1,0 +1,12 @@
+import './base/WesComponent.js';
+import './time-chips/time-chips.js';
+import './resource-slider/resource-slider.js';
+import './chip-select/chip-select.js';
+import './node-card/node-card.js';
+import './jobs-table/jobs-table.js';
+import './task-tile/task-tile.js';
+import './cluster-panel/cluster-panel.js';
+import './config-panel/config-panel.js';
+import './log-viewer/log-viewer.js';
+import './artifact-list/artifact-list.js';
+import './settings-list/settings-list.js';

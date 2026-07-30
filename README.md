@@ -89,3 +89,39 @@ sequence:
 ## Example
 
 See `task.wes` for a working example with common use cases.
+
+## Frontend Architecture
+
+The web UI uses vanilla HTML/CSS/JS with Web Components for encapsulation. Each component lives in its own directory with separate files:
+
+```
+web/static/components/
+  base/WesComponent.js         ← base class with template loading + helpers
+  index.js                     ← imports all components
+  component-name/
+    component-name.html        ← markup
+    component-name.css         ← scoped styles (shadow DOM)
+    component-name.js          ← class extends HTMLElement
+```
+
+Components:
+
+- **base** — `WesComponent` base class (template fetch, shadow DOM, event helpers)
+- **time-chips** — time preset buttons (30m, 1h, 2h, 4h, 8h, 24h, 2d, 7d)
+- **resource-slider** — labeled range slider (CPU, GPU, MEM)
+- **chip-select** — filterable chip buttons (partition selector)
+- **node-card** — cluster node card with capacity bars
+- **jobs-table** — SLURM jobs table
+- **task-tile** — dashboard task card (name, status, resources, actions)
+- **cluster-panel** — SSH query + node grid + jobs table (dashboard)
+- **config-panel** — task config form (memory, CPU, GPU, time, git, etc.)
+- **log-viewer** — tabbed log panel (stdout, stderr, pre-run)
+- **artifact-list** — videos, models, images, data files
+- **settings-list** — removable item list
+- **slurm-designer** — full SLURM job designer page
+
+## Requests
+
+- Lightweight `JobScanner.scan_configs()` method that returns raw config dicts
+  without creating `Job` objects (avoids SSH mkdir/scp overhead for read-only
+  discovery)

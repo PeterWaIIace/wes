@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from wes.clusters.node import Node, NodeCapacity, NodeInfo
-from wes.remote.runner import _ssh_run
+from wes.remote.runner import SshRunner
 
 
 class NodesObserver:
@@ -10,14 +10,18 @@ class NodesObserver:
 
     def __get_server_nodes_info(self) -> list[NodeInfo]:
         fmt = "%N|%P|%T|%C|%G|%m|%R"
-        lines = _ssh_run(self.ssh_config, f"sinfo -N -o '{fmt}'")
+        ok, lines = SshRunner(self.ssh_config).run_command(f"sinfo -N -o '{fmt}'")
+        if not ok:
+            return []
         infos: list[NodeInfo] = []
         for line in lines:
             infos.append(NodeInfo(line))
         return infos
 
     def __get_server_nodes_capacity(self) -> list[NodeCapacity]:
-        lines = _ssh_run(self.ssh_config, "scontrol show nodes -o")
+        ok, lines = SshRunner(self.ssh_config).run_command("scontrol show nodes -o")
+        if not ok:
+            return []
         capacities: list[NodeCapacity] = []
         for line in lines:
             capacities.append(NodeCapacity(line))

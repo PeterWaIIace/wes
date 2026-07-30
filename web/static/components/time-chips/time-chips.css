@@ -1,0 +1,16 @@
+:host { display: block; }
+.tc-chips { display: flex; gap: 0.2rem; flex-wrap: wrap; }
+.tc-btn {
+    padding: 0.25rem 0.6rem;
+    border: 1px solid var(--border, #e2e4e8);
+    border-radius: 5px;
+    background: var(--bg, #fff);
+    color: var(--text-muted, #9aa0a6);
+    font-size: 0.72rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.12s;
+    font-family: inherit;
+}
+.tc-btn:hover { border-color: var(--primary, #004a6c); color: var(--primary, #004a6c); }
+.tc-btn.active { background: var(--primary, #004a6c); color: #fff; border-color: var(--primary, #004a6c); }

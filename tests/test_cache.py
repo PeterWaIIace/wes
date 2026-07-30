@@ -76,9 +76,8 @@ def test_task_to_cache_data() -> None:
         path=".",
         ssh_config="hpc",
         branch="main",
-        job="job.sh",
-        run=["setup.sh"],
-        post="cleanup.sh",
+        job_script="job.sh",
+        pre_script="setup.sh",
         artifacts=["results"],
         cleanup=True,
         state=State.RUNNING,
@@ -92,8 +91,7 @@ def test_task_to_cache_data() -> None:
     assert data["ssh"] == "hpc"
     assert data["branch"] == "main"
     assert data["job"] == "job.sh"
-    assert data["run"] == ["setup.sh"]
-    assert data["post"] == "cleanup.sh"
+    assert data["pre"] == "setup.sh"
     assert data["artifacts"] == ["results"]
     assert data["cleanup"] is True
 
@@ -105,9 +103,8 @@ def test_cached_task_roundtrip() -> None:
         path="/scratch",
         ssh_config="gpu",
         branch="develop",
-        job="train.sh",
-        run=["a.sh", "b.sh"],
-        post="cleanup.sh",
+        job_script="train.sh",
+        pre_script="setup.sh",
         artifacts=["results"],
         cleanup=True,
         state=State.RUNNING,
@@ -122,9 +119,8 @@ def test_cached_task_roundtrip() -> None:
     assert restored.branch == original.branch
     assert restored.path == original.path
     assert restored.ssh_config == original.ssh_config
-    assert restored.job == original.job
-    assert restored.run == original.run
-    assert restored.post == original.post
+    assert restored.job_script == original.job_script
+    assert restored.pre_script == original.pre_script
     assert restored.artifacts == original.artifacts
     assert restored.cleanup_git is original.cleanup_git
     assert restored.status is State.RUNNING

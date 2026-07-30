@@ -9,45 +9,41 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from wes.cache import JobCache
-from wes.states import State
+from web.cache import JobCache
+from web.engine import check_jobs_alive
 
 log = logging.getLogger("wes.web")
 
 STATIC_DIR = Path(__file__).parent / "static"
-RESULTS_DIR = Path("results")
 
 _poller_task: asyncio.Task | None = None
 
 
 async def _poll_running_jobs() -> None:
-    cache = JobCache(persistent=True)
     while True:
         try:
-            for name, data in cache.get_all().items():
-                state = State(data["state"])
-                if state == State.RUNNING:
-                    task = JobCache.cached_task(name, data)
-                    try:
-                        new_status = await asyncio.to_thread(task.execute)
-                    except Exception as e:
-                        log.error("Poller error on task '%s': %s", name, e)
-                        new_status = State.FAILED
+            cache = JobCache()
+            entries = cache.get_all()
+            for run_id, data in list(entries.items()):
+                if not isinstance(data, dict):
+                    continue
+                state = data.get("state", "")
+                if state != "RUNNING":
+                    continue
 
-                    if new_status == State.RUNNING:
-                        cache.set(name, JobCache.task_to_cache_data(task))
-                        log.info("Task '%s': still running, artifacts synced", name)
-                    else:
-                        cache.set(
-                            name,
-                            {
-                                **JobCache.task_to_cache_data(task),
-                                "state": new_status.value,
-                            },
-                        )
-                        log.info("Task '%s': %s", name, new_status.value)
-        except Exception:
-            pass
+                job_ids = data.get("jobs_ids", [])
+                ssh = data.get("ssh", "")
+                if not job_ids or not ssh:
+                    continue
+
+                if check_jobs_alive(ssh, job_ids):
+                    cache.set(run_id, data)
+                else:
+                    data["state"] = "COMPLETED"
+                    cache.set(run_id, data)
+                    log.info("Task '%s': completed", data.get("task_name", run_id))
+        except Exception as e:
+            log.error("Poller error: %s", e)
         await asyncio.sleep(5)
 
 

@@ -47,15 +47,29 @@ def task_detail(request: Request, name: str) -> HTMLResponse:
             "active_task": name,
             "active_page": "dashboard",
             "logs": logs,
-            "artifacts": artifacts,
+            "artifacts": [a.model_dump() for a in artifacts],
             "progress": progress,
         },
     )
 
 
-@router.get("/slurm", response_class=HTMLResponse)
-def slurm_page(request: Request) -> HTMLResponse:
+@router.get("/jobs/{job_id}", response_class=HTMLResponse)
+def job_detail(request: Request, job_id: str) -> HTMLResponse:
     tasks = list_tasks()
     return templates.TemplateResponse(
-        request, "slurm.html", {"tasks": tasks, "active_page": "slurm"}
+        request,
+        "job.html",
+        {
+            "tasks": tasks,
+            "job_id": job_id,
+            "active_page": "dashboard",
+        },
+    )
+
+
+@router.get("/settings", response_class=HTMLResponse)
+def settings_page(request: Request) -> HTMLResponse:
+    tasks = list_tasks()
+    return templates.TemplateResponse(
+        request, "settings.html", {"tasks": tasks, "active_page": "settings"}
     )

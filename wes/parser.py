@@ -19,6 +19,7 @@ VALID_FIELDS = {
     "ssh",
     "job",
     "run",
+    "pre",
     "post",
     "artifacts",
     "cleanup",
@@ -76,16 +77,16 @@ class WESParser:
         name = task_data.get("name", "Unnamed Task")
         _validate_task(name, task_data)
 
+        print(f"Parsing: {task_data}")
         return Task(
             name=name,
             git_url=task_data["git_url"],
             branch=task_data.get("branch", ""),
-            path=task_data.get("path", "."),
+            path=task_data.get("path", ""),
             ssh_config=task_data["ssh"],
             cleanup=task_data.get("cleanup", False),
-            run=task_data.get("run", []),
-            job=task_data["job"],
-            post=task_data.get("post", ""),
+            job_script=task_data["job"],
+            pre_script=task_data.get("pre"),
             artifacts=task_data.get("artifacts", []),
             partition=str(task_data.get("partition", "")),
             cpus=str(task_data.get("cpus", "")),
@@ -113,6 +114,9 @@ def _validate_task(name: str, data: dict) -> None:
 
     if not isinstance(data["job"], str) or not data["job"].strip():
         raise ConfigError(f"Task '{name}': 'job' must be a non-empty string")
+
+    if "pre" in data and (not isinstance(data["pre"], str) or not data["pre"].strip()):
+        raise ConfigError(f"Task '{name}': 'pre' must be a non-empty string")
 
     for field in ("run", "artifacts"):
         val = data.get(field)

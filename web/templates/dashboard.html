@@ -4,57 +4,7 @@
 {% block content %}
 <h1>Dashboard</h1>
 
-<!-- Cluster Panel -->
-<div class="panel">
-    <div class="panel-header">
-        <h2>Cluster</h2>
-        <div class="cluster-bar">
-            <label>SSH</label>
-            <input type="text" id="ssh-input" class="input" placeholder="host or config"
-                   value="{{ ssh_hosts[0] if ssh_hosts else '' }}">
-            <button class="btn btn-sm btn-primary" id="query-btn" onclick="queryCluster()">Query</button>
-            <span id="cluster-status" class="cluster-status-text"></span>
-        </div>
-    </div>
-    <div id="cluster-error"></div>
-    <div id="nodes-section" style="display:none">
-        <div class="panel-header" style="border-bottom:1px solid var(--border-subtle);border-top:none">
-            <h2>Nodes</h2>
-            <span id="node-count" class="panel-meta"></span>
-        </div>
-        <div id="node-grid" class="node-grid"></div>
-    </div>
-</div>
-
-<!-- Jobs Panel -->
-<div class="panel" id="jobs-panel" style="display:none">
-    <div class="panel-header">
-        <h2 id="jobs-title">Jobs</h2>
-        <div id="jobs-controls" style="display:none">
-            <button class="btn btn-sm" onclick="selectNode(null)">Show all</button>
-        </div>
-    </div>
-    <div class="panel-body flush">
-        <div class="jobs-table-wrap">
-            <table class="jobs-table">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Name</th>
-                        <th>User</th>
-                        <th>State</th>
-                        <th>Time</th>
-                        <th>CPUs</th>
-                        <th>Memory</th>
-                        <th>Nodes</th>
-                        <th>Partition</th>
-                    </tr>
-                </thead>
-                <tbody id="jobs-tbody"></tbody>
-            </table>
-        </div>
-    </div>
-</div>
+<cluster-panel></cluster-panel>
 
 <!-- Tasks Panel -->
 <div class="panel">
@@ -62,7 +12,7 @@
         <h2>Tasks</h2>
         <div style="display:flex;gap:0.5rem;align-items:center">
             <span id="tasks-status" class="cluster-status-text"></span>
-            <button class="btn btn-sm" onclick="loadConfig()">Reload</button>
+            <button class="btn btn-sm" id="reload-btn">Reload</button>
         </div>
     </div>
     <div id="tasks-error"></div>
@@ -72,537 +22,640 @@
     </div>
 </div>
 
-<!-- Inline Config Panel (hidden by default) -->
-<div class="panel hidden" id="config-panel">
+<!-- Jobs Panel -->
+<div class="panel">
     <div class="panel-header">
-        <h2 id="config-title">New Task</h2>
-        <button class="btn btn-sm" onclick="closeConfig()">&#x2715; Close</button>
+        <h2>Jobs</h2>
+        <span id="jobs-status" class="cluster-status-text"></span>
     </div>
-    <div class="config-form">
-        <!-- Resource Controls (prominent) -->
-        <div class="form-section">
-            <h2>SLURM Resources</h2>
-            <div class="config-resources">
-                <div class="config-resource-row">
-                    <div class="config-field config-field-node">
+    <div id="jobs-error"></div>
+    <div class="jobs-toolbar">
+        <input id="jobs-search" class="input" type="search" placeholder="Search jobs..." oninput="renderJobList()">
+        <select id="jobs-filter-state" class="input" onchange="renderJobList()">
+            <option value="">all states</option>
+            <option value="running">running</option>
+            <option value="pending">pending</option>
+            <option value="completed">completed</option>
+            <option value="failed">failed</option>
+            <option value="cancelled">cancelled</option>
+        </select>
+    </div>
+    <div id="jobs-list"></div>
+    <div id="jobs-empty" class="empty-state" style="display:none">
+        No running jobs
+    </div>
+</div>
+
+<config-panel id="config-panel"></config-panel>
+
+<!-- Launch Modal -->
+<div id="launch-modal" class="modal-overlay hidden">
+    <div class="modal-panel">
+        <div class="modal-header">
+            <span class="modal-title">Launch</span>
+            <span id="launch-task-name" class="modal-task-name"></span>
+            <button class="btn-ghost modal-close" id="launch-close-btn">&#x2715;</button>
+        </div>
+        <div class="modal-body">
+            <div class="modal-task-info">
+                <div class="modal-info-row">
+                    <span class="modal-info-label">Repo</span>
+                    <span class="modal-info-value" id="launch-repo"></span>
+                </div>
+                <div class="modal-info-row">
+                    <span class="modal-info-label">Branch</span>
+                    <span class="modal-info-value" id="launch-branch"></span>
+                </div>
+                <div class="modal-info-row">
+                    <span class="modal-info-label">Job</span>
+                    <span class="modal-info-value" id="launch-job"></span>
+                </div>
+            </div>
+            <div class="modal-section">
+                <div class="modal-section-title">Resources</div>
+                <div class="modal-resources">
+                    <div class="modal-resource-row">
                         <label>Node</label>
-                        <select id="cfg-nodelist" class="st-input">
-                            <option value="">any</option>
-                        </select>
+                        <select id="launch-nodelist" class="modal-select"></select>
                     </div>
-                </div>
-                <div class="config-resource-row">
-                    <div class="config-field config-field-slider">
-                        <label>Memory <span class="st-val" id="cfg-mem-val">4G</span></label>
-                        <input type="range" id="cfg-memory" class="st-slider slider-mem"
-                               min="1" max="128" value="4">
+                    <div class="modal-resource-row">
+                        <label>Memory</label>
+                        <resource-slider id="launch-mem" min="1" max="128" class="slider-mem"></resource-slider>
                     </div>
-                    <div class="config-field config-field-slider">
-                        <label>CPUs <span class="st-val" id="cfg-cpu-val">1</span></label>
-                        <input type="range" id="cfg-cpus" class="st-slider slider-cpu"
-                               min="1" max="64" value="1">
+                    <div class="modal-resource-row">
+                        <label>CPUs</label>
+                        <resource-slider id="launch-cpu" min="1" max="64" class="slider-cpu"></resource-slider>
                     </div>
-                    <div class="config-field config-field-slider">
-                        <label>GPUs <span class="st-val" id="cfg-gpu-val">0</span></label>
-                        <input type="range" id="cfg-gpus" class="st-slider slider-gpu"
-                               min="0" max="8" value="0">
+                    <div class="modal-resource-row">
+                        <label>GPUs</label>
+                        <resource-slider id="launch-gpu" min="0" max="8" class="slider-gpu"></resource-slider>
                     </div>
-                </div>
-                <div class="config-resource-row">
-                    <div class="config-field config-field-time">
+                    <div class="modal-resource-row">
                         <label>Time</label>
-                        <div class="st-time-chips" id="cfg-time-chips"></div>
+                        <time-chips id="launch-time"></time-chips>
                     </div>
                 </div>
             </div>
         </div>
-
-        <!-- Job Info -->
-        <div class="form-section">
-            <h2>Job</h2>
-            <div class="config-fields-grid">
-                <div class="config-field">
-                    <label>Name</label>
-                    <input type="text" id="cfg-name" class="st-input" placeholder="my-task">
-                </div>
-                <div class="config-field">
-                    <label>Job Command</label>
-                    <input type="text" id="cfg-job" class="st-input" placeholder="bash run.sh">
-                </div>
-                <div class="config-field">
-                    <label>Git URL</label>
-                    <input type="text" id="cfg-git-url" class="st-input" placeholder="https://github.com/...">
-                </div>
-                <div class="config-field">
-                    <label>Branch</label>
-                    <input type="text" id="cfg-branch" class="st-input" placeholder="main">
-                </div>
-                <div class="config-field">
-                    <label>SSH</label>
-                    <input type="text" id="cfg-ssh" class="st-input" placeholder="ssh config host">
-                </div>
-            </div>
-        </div>
-
-        <div class="config-actions">
-            <button class="btn btn-sm" onclick="closeConfig()">Cancel</button>
-            <button class="btn btn-sm btn-primary" id="cfg-submit-btn" onclick="submitConfig()">Run</button>
+        <div class="modal-actions">
+            <button class="btn" id="launch-cancel-btn">Cancel</button>
+            <button class="btn btn-primary" id="launch-go-btn">&#9654; Launch</button>
         </div>
     </div>
 </div>
 
-<div id="result" class="hidden" onclick="this.classList.add('hidden')"></div>
+<!-- Launcher Overlay -->
+<div id="launcher-overlay" class="launcher-overlay hidden">
+    <div class="launcher-panel">
+        <div class="launcher-header">
+            <span class="launcher-header-label">Job</span>
+            <span id="launcher-job-id" class="launcher-task-name"></span>
+        </div>
+        <div class="launcher-steps">
+            <div class="launcher-step" data-step="launching">
+                <div class="launcher-step-dot"></div>
+                <div class="launcher-step-label">Submitting</div>
+            </div>
+            <div class="launcher-arrow">↓</div>
+            <div class="launcher-step" data-step="pending">
+                <div class="launcher-step-dot"></div>
+                <div class="launcher-step-label">Pending</div>
+            </div>
+            <div class="launcher-arrow">↓</div>
+            <div class="launcher-step" data-step="running">
+                <div class="launcher-step-dot"></div>
+                <div class="launcher-step-label">Running</div>
+            </div>
+            <div class="launcher-arrow">↓</div>
+            <div class="launcher-step" data-step="completed">
+                <div class="launcher-step-dot"></div>
+                <div class="launcher-step-label">Completed</div>
+            </div>
+        </div>
+        <div id="launcher-error" class="launcher-error hidden">
+            <pre id="launcher-error-msg" class="launcher-error-msg"></pre>
+            <div class="launcher-error-actions">
+                <button id="launcher-fetch-logs" class="btn btn-sm launcher-fetch-logs">Fetch Logs</button>
+                <button id="launcher-understood" class="btn btn-primary launcher-understood">Understood</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
-<script>
-const TIME_PRESETS = [
-    {label: '30m', hours: 0.5},
-    {label: '1h', hours: 1},
-    {label: '2h', hours: 2},
-    {label: '4h', hours: 4},
-    {label: '8h', hours: 8},
-    {label: '24h', hours: 24},
-    {label: '2d', hours: 48},
-    {label: '7d', hours: 168},
-];
-
+<script type="module">
 let taskConfigs = [];
+let cachedJobs = {};
 let editingIndex = -1;
-let selectedTimeHours = 4;
+let launcherTimer = null;
+let launchTaskData = null;
 
-// --- Cluster ---
-let allJobs = [];
-let allNodes = [];
-let allCapacity = [];
-let selectedNode = null;
-let clusterTimer = null;
+const launcherOverlay = document.getElementById('launcher-overlay');
+const launcherJobId = document.getElementById('launcher-job-id');
+const launcherError = document.getElementById('launcher-error');
+const launcherErrorMsg = document.getElementById('launcher-error-msg');
+const launcherUnderstood = document.getElementById('launcher-understood');
+const launcherFetchLogs = document.getElementById('launcher-fetch-logs');
+const launcherSteps = launcherOverlay.querySelectorAll('.launcher-step');
+let launcherActiveJobId = '';
 
-async function queryCluster(silent) {
-    const ssh = document.getElementById('ssh-input').value.trim();
-    if (!ssh) return;
-    const btn = document.getElementById('query-btn');
-    const status = document.getElementById('cluster-status');
-    const errDiv = document.getElementById('cluster-error');
-    if (!silent) {
-        btn.disabled = true;
-        status.textContent = 'Querying...';
-    }
-    errDiv.innerHTML = '';
+function setLauncherStep(name) {
+    launcherSteps.forEach(s => {
+        const step = s.getAttribute('data-step');
+        s.classList.remove('active', 'done', 'failed');
+        if (step === name) s.classList.add('active');
+    });
+}
 
-    try {
-        const resp = await fetch('/api/cluster?ssh=' + encodeURIComponent(ssh));
-        const data = await resp.json();
-        if (data.error) {
-            if (!silent) errDiv.innerHTML = '<div class="error">' + data.error + '</div>';
-            return;
+function markLauncherStep(name, state) {
+    launcherSteps.forEach(s => {
+        if (s.getAttribute('data-step') === name) {
+            s.classList.remove('active', 'done', 'failed');
+            s.classList.add(state);
         }
-        allNodes = data.nodes || [];
-        allJobs = data.jobs || [];
-        allCapacity = data.capacity || [];
-        selectedNode = null;
-        renderNodes();
-        renderJobs();
-        localStorage.setItem('wes_ssh', ssh);
-    } catch (err) {
-        if (!silent) errDiv.innerHTML = '<div class="error">' + err.message + '</div>';
+    });
+}
+
+function showLauncher(jobId) {
+    if (launcherTimer) { clearTimeout(launcherTimer); launcherTimer = null; }
+    launcherJobId.textContent = jobId;
+    launcherActiveJobId = jobId;
+    launcherError.classList.add('hidden');
+    launcherSteps.forEach(s => s.classList.remove('active', 'done', 'failed'));
+    setLauncherStep('launching');
+    launcherOverlay.classList.remove('hidden');
+}
+
+function hideLauncher() {
+    launcherOverlay.classList.add('hidden');
+    if (launcherTimer) { clearTimeout(launcherTimer); launcherTimer = null; }
+}
+
+function showLauncherError(msg) {
+    launcherErrorMsg.textContent = msg;
+    launcherError.classList.remove('hidden');
+}
+
+async function fetchLauncherLogs() {
+    if (!launcherActiveJobId) return;
+    launcherFetchLogs.disabled = true;
+    launcherFetchLogs.textContent = 'Fetching...';
+    try {
+        let logText = launcherErrorMsg.textContent;
+        try {
+            const resp = await fetch('/api/jobs/' + encodeURIComponent(launcherActiveJobId) + '/remote-logs');
+            if (resp.ok) {
+                const data = await resp.json();
+                for (const [fname, content] of Object.entries(data)) {
+                    const label = fname.replace('.txt', '').replace(/_/g, ' ');
+                    logText += '\n\n--- ' + label + ' ---\n' + content;
+                }
+            }
+        } catch (_) {}
+        const resp2 = await fetch('/api/jobs/' + encodeURIComponent(launcherActiveJobId) + '/logs');
+        if (resp2.ok) {
+            const data = await resp2.json();
+            if (data.pre_run) logText += '\n\n--- pre_run (local) ---\n' + data.pre_run;
+            if (data.stdout) logText += '\n\n--- stdout (local) ---\n' + data.stdout;
+            if (data.stderr) logText += '\n\n--- stderr (local) ---\n' + data.stderr;
+        }
+        launcherErrorMsg.textContent = logText;
+    } catch (e) {
+        launcherErrorMsg.textContent += '\n\nFailed to fetch logs: ' + e.message;
     } finally {
-        btn.disabled = false;
-        status.textContent = allNodes.length + ' nodes, ' + allJobs.length + ' jobs';
+        launcherFetchLogs.disabled = false;
+        launcherFetchLogs.textContent = 'Fetch Logs';
     }
 }
 
-function startClusterAutoRefresh() {
-    if (clusterTimer) clearInterval(clusterTimer);
-    clusterTimer = setInterval(() => {
-        const ssh = document.getElementById('ssh-input').value.trim();
-        if (ssh) queryCluster(true);
-    }, 10000);
+launcherUnderstood.addEventListener('click', () => hideLauncher());
+launcherFetchLogs.addEventListener('click', () => fetchLauncherLogs());
+
+// ── Launch Modal ──
+
+const launchModal = document.getElementById('launch-modal');
+const launchMem = document.getElementById('launch-mem');
+const launchCpu = document.getElementById('launch-cpu');
+const launchGpu = document.getElementById('launch-gpu');
+const launchTime = document.getElementById('launch-time');
+const launchNodelist = document.getElementById('launch-nodelist');
+
+function openLaunchModal(taskData) {
+    launchTaskData = taskData;
+    document.getElementById('launch-task-name').textContent = taskData.name;
+    document.getElementById('launch-repo').textContent = taskData.git_url.split('/').pop().replace('.git', '');
+    document.getElementById('launch-branch').textContent = taskData.branch || '-';
+    document.getElementById('launch-job').textContent = taskData.job || '-';
+
+    if (launchMem) launchMem.value = parseInt(taskData.memory) || 4;
+    if (launchCpu) launchCpu.value = parseInt(taskData.cpus) || 1;
+    if (launchGpu) launchGpu.value = parseInt(taskData.gpus) || 0;
+    if (launchTime && taskData.time) {
+        const parts = taskData.time.split(':');
+        launchTime.value = parseInt(parts[0]) + parseInt(parts[1] || 0) / 60;
+    }
+
+    loadLaunchNodes(taskData.ssh);
+    launchModal.classList.remove('hidden');
 }
 
-function renderNodes() {
-    const grid = document.getElementById('node-grid');
-    const section = document.getElementById('nodes-section');
-    if (!allNodes.length) { section.style.display = 'none'; return; }
-    section.style.display = '';
+function closeLaunchModal() {
+    launchModal.classList.add('hidden');
+    launchTaskData = null;
+}
 
-    const idle = allNodes.filter(n => n.state === 'idle').length;
-    const alloc = allNodes.filter(n => n.state === 'alloc' || n.state === 'allocated').length;
-    const mix = allNodes.filter(n => n.state === 'mix' || n.state === 'node-mix').length;
-    document.getElementById('node-count').textContent = idle + ' idle \u00b7 ' + alloc + ' alloc \u00b7 ' + mix + ' mix';
-
-    let html = '';
-    allNodes.forEach(n => {
-        const stateClass = n.state === 'idle' ? 'ns-idle' :
-                           n.state === 'alloc' || n.state === 'allocated' ? 'ns-alloc' :
-                           n.state === 'mix' || n.state === 'node-mix' ? 'ns-mix' : 'ns-other';
-        const jobCount = allJobs.filter(j => j.nodes && j.nodes.includes(n.name)).length;
-        const cap = allCapacity.find(c => c.name === n.name);
-        const sel = selectedNode === n.name;
-        html += '<div class="node-card ' + stateClass + (sel ? ' selected' : '') + '" onclick="selectNode(\'' + n.name + '\')">';
-        html += '<div class="node-card-header">';
-        html += '<span class="node-card-name">' + n.name + '</span>';
-        if (jobCount > 0) html += '<span class="node-card-count">' + jobCount + '</span>';
-        html += '</div>';
-        html += '<div class="node-card-state">' + n.state + '</div>';
-        if (cap) {
-            const fmt = mb => mb >= 1024 ? Math.round(mb / 1024) + 'G' : mb + 'M';
-            html += '<div class="node-card-cap">';
-            html += '<div class="cap-row"><span class="cap-label">CPU</span><div class="cap-bar"><div class="cap-bar-fill cap-cpu" style="width:' + (cap.cpu_total ? Math.round(cap.cpu_alloc / cap.cpu_total * 100) : 0) + '%"></div></div><span class="cap-text">' + cap.cpu_alloc + '/' + cap.cpu_total + '</span></div>';
-            if (cap.gpu_total > 0) html += '<div class="cap-row"><span class="cap-label">GPU</span><div class="cap-bar"><div class="cap-bar-fill cap-gpu" style="width:' + Math.round(cap.gpu_alloc / cap.gpu_total * 100) + '%"></div></div><span class="cap-text">' + cap.gpu_alloc + '/' + cap.gpu_total + '</span></div>';
-            html += '<div class="cap-row"><span class="cap-label">MEM</span><div class="cap-bar"><div class="cap-bar-fill cap-mem" style="width:' + (cap.mem_total_mb ? Math.round(cap.mem_alloc_mb / cap.mem_total_mb * 100) : 0) + '%"></div></div><span class="cap-text">' + fmt(cap.mem_alloc_mb) + '/' + fmt(cap.mem_total_mb) + '</span></div>';
-            html += '</div>';
-        } else {
-            html += '<div class="ns-meta">' + n.cpus + ' CPUs';
-            if (n.gpus !== '-') html += ' \u00b7 ' + n.gpus + ' GPUs';
-            html += ' \u00b7 ' + n.memory + '</div>';
+async function loadLaunchNodes(ssh) {
+    launchNodelist.innerHTML = '<option value="">any</option>';
+    launchNodelist.innerHTML += '<option value="local">local</option>';
+    try {
+        const resp = await fetch('/api/nodes' + (ssh ? '?ssh=' + encodeURIComponent(ssh) : ''));
+        const data = await resp.json();
+        if (data.nodes) {
+            data.nodes.forEach(n => {
+                const opt = document.createElement('option');
+                opt.value = n.name;
+                opt.textContent = `${n.name} (${n.cpus} cpus, ${n.gpus} gpus, ${n.memory})`;
+                launchNodelist.appendChild(opt);
+            });
         }
-        if (n.partition) html += '<div class="node-card-partition">' + n.partition + '</div>';
-        html += '</div>';
-    });
-    grid.innerHTML = html;
+    } catch (_) {}
 }
 
-function selectNode(name) {
-    selectedNode = name;
-    renderNodes();
-    renderJobs();
-}
+document.getElementById('launch-close-btn').addEventListener('click', closeLaunchModal);
+document.getElementById('launch-cancel-btn').addEventListener('click', closeLaunchModal);
+launchModal.addEventListener('click', e => { if (e.target === launchModal) closeLaunchModal(); });
 
-function renderJobs() {
-    const panel = document.getElementById('jobs-panel');
-    const tbody = document.getElementById('jobs-tbody');
-    const controls = document.getElementById('jobs-controls');
-    const title = document.getElementById('jobs-title');
+document.getElementById('launch-go-btn').addEventListener('click', async () => {
+    if (!launchTaskData) return;
+    const overrides = {};
+    if (launchMem) overrides.memory = launchMem.value + 'G';
+    if (launchCpu) overrides.cpus = String(launchCpu.value);
+    if (launchGpu) overrides.gpus = String(launchGpu.value);
+    if (launchTime) overrides.time = launchTime.value;
+    if (launchNodelist) overrides.nodelist = launchNodelist.value;
 
-    let jobs = allJobs;
-    if (selectedNode) {
-        jobs = allJobs.filter(j => j.nodes && j.nodes.includes(selectedNode));
-        title.textContent = 'Jobs \u2014 ' + selectedNode;
-        controls.style.display = '';
-    } else {
-        title.textContent = 'All Jobs';
-        controls.style.display = 'none';
-    }
-
-    if (!jobs.length) {
-        tbody.innerHTML = '<tr><td colspan="9" class="empty">' + (selectedNode ? 'No jobs on this node' : 'No jobs found') + '</td></tr>';
-        panel.style.display = '';
-        return;
-    }
-    panel.style.display = '';
-
-    const stateColor = s => s === 'RUNNING' ? 'running' : s === 'PENDING' ? 'pending' : s === 'FAILED' ? 'failed' : 'completed';
-    let html = '';
-    jobs.forEach(j => {
-        html += '<tr>';
-        html += '<td><span class="dot dot-' + stateColor(j.state) + '"></span></td>';
-        html += '<td class="job-name-cell mono">' + j.name + '</td>';
-        html += '<td style="color:var(--text-secondary)">' + j.user + '</td>';
-        html += '<td><span class="badge badge-' + stateColor(j.state) + '">' + j.state + '</span></td>';
-        html += '<td class="mono" style="color:var(--text-secondary)">' + j.time + '</td>';
-        html += '<td class="mono" style="color:var(--text-secondary)">' + j.cpus + '</td>';
-        html += '<td class="mono" style="color:var(--text-secondary)">' + j.memory + '</td>';
-        html += '<td class="mono" style="color:var(--text-secondary);max-width:120px">' + (j.nodes || '-') + '</td>';
-        html += '<td style="color:var(--text-secondary)">' + j.partition + '</td>';
-        html += '</tr>';
-    });
-    tbody.innerHTML = html;
-}
-
-// --- Task Tiles & Config ---
-
-async function loadConfig() {
-    const status = document.getElementById('tasks-status');
-    const error = document.getElementById('tasks-error');
-    const empty = document.getElementById('task-empty');
-    status.textContent = 'Loading...';
-    error.innerHTML = '';
+    closeLaunchModal();
+    showLauncher(launchTaskData.name + '...');
+    setLauncherStep('launching');
 
     try {
-        const resp = await fetch('/api/config');
+        const resp = await fetch('/api/jobs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ task_name: launchTaskData.name, overrides }),
+        });
         const data = await resp.json();
-        taskConfigs = data;
-        if (!data.length) {
-            empty.style.display = '';
-            document.getElementById('task-tiles').innerHTML = '';
-            status.textContent = '';
-            return;
+        if (resp.ok) {
+            const jobId = data.run_id || data.job_id || data.task_name + '...';
+            launcherJobId.textContent = jobId;
+            launcherActiveJobId = jobId;
+            markLauncherStep('launching', 'done');
+            if (data.state === 'RUNNING') {
+                markLauncherStep('pending', 'done');
+                setLauncherStep('running');
+                loadDashboard();
+                launcherTimer = setTimeout(hideLauncher, 5000);
+            } else if (data.state === 'FAILED') {
+                markLauncherStep('pending', 'failed');
+                showLauncherError(`${jobId} failed during launch`);
+                loadDashboard();
+            } else {
+                setLauncherStep('pending');
+                loadDashboard();
+                pollJobStatus(jobId, 15);
+            }
+        } else {
+            markLauncherStep('launching', 'failed');
+            showLauncherError(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail, null, 2) || 'Launch failed');
         }
-        empty.style.display = 'none';
-        renderTiles();
-        status.textContent = data.length + ' task' + (data.length > 1 ? 's' : '');
+    } catch (e) {
+        markLauncherStep('launching', 'failed');
+        showLauncherError(e.message);
+    }
+});
+
+// ── Job polling ──
+
+async function pollJobStatus(jobId, attempts) {
+    for (let i = 0; i < attempts; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        try {
+            const resp = await fetch('/api/jobs/' + encodeURIComponent(jobId));
+            if (!resp.ok) continue;
+            const data = await resp.json();
+            const state = (data.state || '').toUpperCase();
+            if (state === 'RUNNING') {
+                markLauncherStep('pending', 'done');
+                setLauncherStep('running');
+                loadDashboard();
+                launcherTimer = setTimeout(hideLauncher, 5000);
+                return;
+            }
+            if (state === 'FAILED') {
+                markLauncherStep('pending', 'failed');
+                showLauncherError(`${jobId} failed on the cluster`);
+                loadDashboard();
+                return;
+            }
+            if (state === 'PENDING') {
+                markLauncherStep('pending', 'active');
+            }
+        } catch (_) {}
+    }
+    markLauncherStep('completed', 'active');
+    loadDashboard();
+    launcherTimer = setTimeout(hideLauncher, 8000);
+}
+
+// ── Dashboard ──
+
+async function loadDashboard() {
+    const tasksStatus = document.getElementById('tasks-status');
+    const tasksError = document.getElementById('tasks-error');
+    const taskEmpty = document.getElementById('task-empty');
+    const jobsStatus = document.getElementById('jobs-status');
+    const jobsError = document.getElementById('jobs-error');
+    const jobsEmpty = document.getElementById('jobs-empty');
+
+    tasksStatus.textContent = 'Loading...';
+    tasksError.innerHTML = '';
+    jobsStatus.textContent = 'Loading...';
+    jobsError.innerHTML = '';
+
+    try {
+        const [tasksResp, jobsResp] = await Promise.all([
+            fetch('/api/tasks'),
+            fetch('/api/jobs'),
+        ]);
+        const tasks = await tasksResp.json();
+        const jobs = await jobsResp.json();
+
+        taskConfigs = tasks;
+        cachedJobs = {};
+        jobs.forEach(j => { cachedJobs[j.job_id] = j; });
+
+        if (!tasks.length) {
+            taskEmpty.style.display = '';
+            document.getElementById('task-tiles').innerHTML = '';
+            tasksStatus.textContent = '';
+        } else {
+            taskEmpty.style.display = 'none';
+            renderTaskTiles();
+            tasksStatus.textContent = tasks.length + ' task' + (tasks.length > 1 ? 's' : '');
+        }
+
+        if (!jobs.length) {
+            jobsEmpty.style.display = '';
+            document.getElementById('jobs-list').innerHTML = '';
+            jobsStatus.textContent = '';
+        } else {
+            jobsEmpty.style.display = 'none';
+            renderJobList();
+            jobsStatus.textContent = jobs.length + ' job' + (jobs.length > 1 ? 's' : '');
+        }
     } catch (err) {
-        error.innerHTML = '<div class="error">' + err.message + '</div>';
-        status.textContent = '';
+        tasksError.innerHTML = '<div class="error">' + err.message + '</div>';
+        tasksStatus.textContent = '';
+        jobsStatus.textContent = '';
     }
 }
 
-function renderTiles() {
+function renderTaskTiles() {
     const container = document.getElementById('task-tiles');
-    let html = '';
+    container.innerHTML = '';
 
     taskConfigs.forEach((t, i) => {
-        const repo = t.git_url ? t.git_url.split('/').pop().replace('.git', '') : '';
-        const statusClass = 'unknown';
-        html += '<div class="task-tile" onclick="openConfig(' + i + ')">';
-        html += '<div class="task-tile-top">';
-        html += '<span class="dot dot-' + statusClass + '"></span>';
-        html += '<span class="task-tile-name">' + t.name + '</span>';
-        html += '</div>';
-        html += '<div class="task-tile-meta">';
-        if (repo) html += '<span class="task-tile-repo">' + repo + '</span>';
-        if (t.branch) html += '<span class="task-tile-branch">' + t.branch + '</span>';
-        html += '</div>';
-        html += '<div class="task-tile-resources">';
-        html += '<span>' + (t.memory || '-') + '</span>';
-        html += '<span>' + (t.cpus || '1') + ' CPU</span>';
-        if (t.gpus && t.gpus !== '0') html += '<span>' + t.gpus + ' GPU</span>';
-        if (t.time) html += '<span>' + t.time + '</span>';
-        html += '</div>';
-        html += '</div>';
+        const tile = document.createElement('task-tile');
+        tile.data = {
+            name: t.name,
+            repo: t.git_url ? t.git_url.split('/').pop().replace('.git', '') : '',
+            branch: t.branch || '',
+            status: 'idle',
+            artifactCount: 0,
+            memory: t.memory || '',
+            cpus: t.cpus || '1',
+            gpus: t.gpus || '0',
+            time: t.time || '',
+            index: i,
+            git_url: t.git_url,
+            ssh: t.ssh,
+            job: t.job,
+            run_id: t.run_id || '',
+        };
+        tile.addEventListener('task-launch', e => openLaunchModal(e.detail.task));
+        tile.addEventListener('task-edit', e => openConfig(e.detail.index));
+        tile.addEventListener('task-delete', e => deleteTask(e.detail.name, e.detail.run_id));
+        container.appendChild(tile);
     });
 
-    // Add tile
-    html += '<div class="task-tile task-tile-add" onclick="openConfig(-1)">';
-    html += '<div class="task-tile-add-icon">+</div>';
-    html += '<div class="task-tile-add-label">New Task</div>';
-    html += '</div>';
+    const addTile = document.createElement('div');
+    addTile.className = 'task-tile task-tile-add';
+    addTile.onclick = () => openConfig(-1);
+    addTile.innerHTML = '<div class="task-tile-add-icon">+</div><div class="task-tile-add-label">New Task</div>';
+    container.appendChild(addTile);
+}
 
-    container.innerHTML = html;
+let jobsSortKey = 'priority';
+let jobsSortAsc = false;
+
+function renderJobList() {
+    const container = document.getElementById('jobs-list');
+    container.innerHTML = '';
+
+    const search = (document.getElementById('jobs-search').value || '').toLowerCase();
+    const filterState = document.getElementById('jobs-filter-state').value;
+
+    let jobs = Object.values(cachedJobs);
+
+    if (search) {
+        jobs = jobs.filter(j =>
+            (j.job_id || '').toLowerCase().includes(search) ||
+            (j.task_name || '').toLowerCase().includes(search) ||
+            (j.run_id || '').toLowerCase().includes(search) ||
+            (j.branch || '').toLowerCase().includes(search) ||
+            (j.ssh || '').toLowerCase().includes(search) ||
+            (j.priority || '').toLowerCase().includes(search)
+        );
+    }
+
+    if (filterState) {
+        jobs = jobs.filter(j => (j.state || '').toLowerCase() === filterState);
+    }
+
+    const stateOrder = { running: 0, pending: 1, completed: 2, failed: 3, cancelled: 4 };
+    jobs.sort((a, b) => {
+        let va, vb;
+        if (jobsSortKey === 'priority') {
+            va = parseInt(a.priority) || 0;
+            vb = parseInt(b.priority) || 0;
+        } else if (jobsSortKey === 'state') {
+            va = stateOrder[(a.state || '').toLowerCase()] ?? 99;
+            vb = stateOrder[(b.state || '').toLowerCase()] ?? 99;
+        } else if (jobsSortKey === 'cpus') {
+            va = parseInt(a.cpus) || 0;
+            vb = parseInt(b.cpus) || 0;
+        } else if (jobsSortKey === 'memory') {
+            va = parseInt(a.memory) || 0;
+            vb = parseInt(b.memory) || 0;
+        } else {
+            va = (a[jobsSortKey] || '').toLowerCase();
+            vb = (b[jobsSortKey] || '').toLowerCase();
+        }
+        const cmp = typeof va === 'number' ? va - vb : va.localeCompare(vb);
+        return jobsSortAsc ? cmp : -cmp;
+    });
+
+    const colDefs = [
+        { key: 'job_id', label: 'Job ID' },
+        { key: 'task_name', label: 'Task' },
+        { key: 'state', label: 'State' },
+        { key: 'priority', label: 'Priority' },
+        { key: 'cpus', label: 'CPUs' },
+        { key: 'memory', label: 'Memory' },
+        { key: 'time', label: 'Time' },
+        { key: 'partition', label: 'Partition' },
+        { key: 'ssh', label: 'Host' },
+    ];
+
+    const table = document.createElement('table');
+    table.className = 'jobs-table';
+
+    const thead = document.createElement('thead');
+    const tr = document.createElement('tr');
+    colDefs.forEach(col => {
+        const th = document.createElement('th');
+        th.textContent = col.label;
+        th.style.cursor = 'pointer';
+        th.style.userSelect = 'none';
+        if (col.key === jobsSortKey) {
+            th.classList.add('sorted');
+            th.textContent += jobsSortAsc ? ' ▲' : ' ▼';
+        }
+        th.addEventListener('click', () => {
+            if (jobsSortKey === col.key) jobsSortAsc = !jobsSortAsc;
+            else { jobsSortKey = col.key; jobsSortAsc = false; }
+            renderJobList();
+        });
+        tr.appendChild(th);
+    });
+    thead.appendChild(tr);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    if (!jobs.length) {
+        tbody.innerHTML = '<tr><td colspan="9" class="jt-empty">No jobs match</td></tr>';
+    } else {
+        jobs.forEach(job => {
+            const st = (job.state || 'unknown').toLowerCase();
+            const tr = document.createElement('tr');
+            tr.style.cursor = 'pointer';
+            tr.addEventListener('click', () => {
+                window.location.href = '/jobs/' + encodeURIComponent(job.job_id);
+            });
+            tr.innerHTML = `
+                <td><span class="dot dot-${st}"></span> ${job.job_id || ''}</td>
+                <td>${job.task_name || ''}</td>
+                <td><span class="badge badge-${st}">${job.state || ''}</span></td>
+                <td class="mono">${job.priority != null && job.priority !== '' ? job.priority : ''}</td>
+                <td class="mono">${job.cpus || ''}</td>
+                <td class="mono">${job.memory || ''}</td>
+                <td class="mono">${job.time || ''}</td>
+                <td>${job.partition || ''}</td>
+                <td class="mono">${job.ssh || ''}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+    table.appendChild(tbody);
+    container.appendChild(table);
 }
 
 function openConfig(index) {
     editingIndex = index;
     const panel = document.getElementById('config-panel');
-    const title = document.getElementById('config-title');
-    panel.classList.remove('hidden');
-
-    // Build time chips
-    renderTimeChips();
-    loadNodeOptions();
+    const clusterPanel = document.querySelector('cluster-panel');
 
     if (index >= 0 && index < taskConfigs.length) {
         const t = taskConfigs[index];
-        title.textContent = t.name;
-        document.getElementById('cfg-name').value = t.name || '';
-        document.getElementById('cfg-git-url').value = t.git_url || '';
-        document.getElementById('cfg-branch').value = t.branch || '';
-        document.getElementById('cfg-ssh').value = t.ssh || '';
-        document.getElementById('cfg-job').value = t.job || '';
-        document.getElementById('cfg-nodelist').value = t.nodelist || '';
-
-        const memGB = parseMemGB(t.memory) || 4;
-        document.getElementById('cfg-memory').value = memGB;
-        document.getElementById('cfg-mem-val').textContent = memGB + 'G';
-
-        const cpus = parseInt(t.cpus) || 1;
-        document.getElementById('cfg-cpus').value = cpus;
-        document.getElementById('cfg-cpu-val').textContent = cpus;
-
-        const gpus = parseInt(t.gpus) || 0;
-        document.getElementById('cfg-gpus').value = gpus;
-        document.getElementById('cfg-gpu-val').textContent = gpus;
-
-        selectedTimeHours = parseTimeHours(t.time) || 4;
+        panel.open({ editing: true, ...t });
     } else {
-        title.textContent = 'New Task';
-        document.getElementById('cfg-name').value = '';
-        document.getElementById('cfg-git-url').value = '';
-        document.getElementById('cfg-branch').value = '';
-        document.getElementById('cfg-ssh').value = '';
-        document.getElementById('cfg-job').value = '';
-        document.getElementById('cfg-nodelist').value = '';
-        document.getElementById('cfg-memory').value = 4;
-        document.getElementById('cfg-mem-val').textContent = '4G';
-        document.getElementById('cfg-cpus').value = 1;
-        document.getElementById('cfg-cpu-val').textContent = '1';
-        document.getElementById('cfg-gpus').value = 0;
-        document.getElementById('cfg-gpu-val').textContent = '0';
-        selectedTimeHours = 4;
-    }
-    updateTimeChipActive();
-    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
-function closeConfig() {
-    document.getElementById('config-panel').classList.add('hidden');
-    editingIndex = -1;
-}
-
-async function loadNodeOptions() {
-    const select = document.getElementById('cfg-nodelist');
-    const current = select.value;
-    select.innerHTML = '<option value="">any</option>';
-
-    const ssh = document.getElementById('ssh-input').value.trim();
-    if (!ssh && !allNodes.length) return;
-
-    if (allNodes.length) {
-        fillNodeSelect(select, allNodes, current);
-        return;
+        panel.open({ editing: false });
     }
 
+    if (clusterPanel && clusterPanel.allNodes && clusterPanel.allNodes.length) {
+        panel.loadNodeOptions(clusterPanel.allNodes);
+    }
+}
+
+async function deleteTask(name, runId) {
+    const target = runId || name;
+    if (!confirm('Remove "' + name + '"? This will cancel running jobs, clean up remote files, and delete the config.')) return;
     try {
-        const resp = await fetch('/api/cluster?ssh=' + encodeURIComponent(ssh));
-        const data = await resp.json();
-        if (data.nodes && data.nodes.length) {
-            fillNodeSelect(select, data.nodes, current);
-        }
-    } catch (_) {}
-}
-
-function fillNodeSelect(select, nodes, current) {
-    let html = '<option value="">any</option>';
-    nodes.forEach(n => {
-        const sel = n.name === current ? ' selected' : '';
-        html += '<option value="' + n.name + '"' + sel + '>' + n.name + ' (' + n.state + ')</option>';
-    });
-    select.innerHTML = html;
-    if (current) select.value = current;
-}
-
-function renderTimeChips() {
-    const container = document.getElementById('cfg-time-chips');
-    let html = '';
-    TIME_PRESETS.forEach(p => {
-        html += '<button type="button" class="time-preset" data-hours="' + p.hours + '" onclick="setTime(' + p.hours + ')">' + p.label + '</button>';
-    });
-    container.innerHTML = html;
-}
-
-function updateTimeChipActive() {
-    document.querySelectorAll('#cfg-time-chips .time-preset').forEach(btn => {
-        const h = parseFloat(btn.dataset.hours);
-        btn.classList.toggle('active', h === selectedTimeHours);
-    });
-    document.getElementById('cfg-time-hidden') && (document.getElementById('cfg-time-hidden').value = formatTime(selectedTimeHours));
-}
-
-function setTime(hours) {
-    selectedTimeHours = hours;
-    updateTimeChipActive();
-}
-
-// Slider listeners
-document.getElementById('cfg-memory').addEventListener('input', e => {
-    document.getElementById('cfg-mem-val').textContent = e.target.value + 'G';
-});
-document.getElementById('cfg-cpus').addEventListener('input', e => {
-    document.getElementById('cfg-cpu-val').textContent = e.target.value;
-});
-document.getElementById('cfg-gpus').addEventListener('input', e => {
-    document.getElementById('cfg-gpu-val').textContent = e.target.value;
-});
-
-function parseMemGB(s) {
-    if (!s) return 0;
-    s = s.trim().toUpperCase();
-    if (s.endsWith('G')) return parseFloat(s);
-    if (s.endsWith('M')) return Math.round(parseInt(s) / 1024) || 1;
-    return parseInt(s) || 0;
-}
-
-function parseTimeHours(s) {
-    if (!s) return 0;
-    const parts = s.trim().split(':');
-    if (parts.length === 3) return parseInt(parts[0]) + parseInt(parts[1]) / 60;
-    return parseFloat(s) || 0;
-}
-
-function formatTime(hours) {
-    const h = Math.floor(hours);
-    const m = Math.round((hours - h) * 60);
-    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':00';
-}
-
-async function submitConfig() {
-    const btn = document.getElementById('cfg-submit-btn');
-    const result = document.getElementById('result');
-    btn.disabled = true;
-    btn.textContent = '...';
-    if (!result.classList.contains('error')) result.className = '';
-
-    const name = document.getElementById('cfg-name').value.trim();
-    if (!name) {
-        result.textContent = 'Error: task name is required';
-        result.className = 'error';
-        btn.disabled = false;
-        btn.textContent = 'Run';
-        return;
-    }
-
-    const mem = document.getElementById('cfg-memory').value;
-    const time = formatTime(selectedTimeHours);
-    const cpus = String(document.getElementById('cfg-cpus').value);
-    const gpus = String(document.getElementById('cfg-gpus').value);
-    const nodelist = document.getElementById('cfg-nodelist').value.trim();
-
-    result.textContent = (editingIndex >= 0 ? 'Submitting ' : 'Creating ') + name + '...';
-
-    try {
-        let resp;
-        if (editingIndex >= 0) {
-            const overrides = {};
-            if (nodelist) overrides.nodelist = nodelist;
-            overrides.memory = mem + 'G';
-            overrides.cpus = cpus;
-            overrides.gpus = gpus;
-            overrides.time = time;
-            resp = await fetch('/api/submit', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ name, overrides }),
-            });
-        } else {
-            resp = await fetch('/api/tasks', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    name,
-                    git_url: document.getElementById('cfg-git-url').value.trim(),
-                    branch: document.getElementById('cfg-branch').value.trim(),
-                    ssh: document.getElementById('cfg-ssh').value.trim(),
-                    job: document.getElementById('cfg-job').value.trim() || name,
-                    memory: mem + 'G',
-                    cpus,
-                    gpus,
-                    time,
-                    nodelist,
-                }),
-            });
-        }
+        const resp = await fetch('/api/tasks/' + encodeURIComponent(target), { method: 'DELETE' });
         const data = await resp.json();
         if (resp.ok) {
-            result.textContent = data.message || (data.task + ': ' + data.state);
-            closeConfig();
-            loadConfig();
+            loadDashboard();
         } else {
-            result.textContent = 'Error: ' + (data.detail || 'Unknown error');
-            result.className = 'error';
+            alert(data.detail || 'Failed to delete task');
         }
     } catch (err) {
-        result.textContent = 'Error: ' + err.message;
-        result.className = 'error';
-    } finally {
-        btn.disabled = false;
-        btn.textContent = 'Run';
+        alert('Error: ' + err.message);
     }
 }
 
-async function deleteTask(name) {
-    if (!confirm('Delete "' + name + '"?')) return;
-    await fetch('/api/tasks/' + name, { method: 'DELETE' });
-    location.reload();
+async function cancelJob(jobId) {
+    if (!confirm('Cancel job "' + jobId + '"?')) return;
+    try {
+        const resp = await fetch('/api/jobs/' + encodeURIComponent(jobId), { method: 'DELETE' });
+        const data = await resp.json();
+        if (resp.ok) {
+            loadDashboard();
+        } else {
+            alert(data.detail || 'Failed to cancel job');
+        }
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
 }
 
-document.getElementById('ssh-input').addEventListener('keydown', e => {
-    if (e.key === 'Enter') queryCluster();
+// ── Config panel events ──
+
+const configPanel = document.getElementById('config-panel');
+
+configPanel.addEventListener('config-success', e => {
+    const detail = e.detail || {};
+    loadDashboard();
+    const msg = detail.message || `Task '${detail.name}' saved`;
+    const toast = document.createElement('div');
+    toast.className = 'toast success';
+    toast.textContent = msg;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
 });
 
-loadConfig();
-{% if ssh_hosts %}
-queryCluster();
-{% endif %}
+configPanel.addEventListener('config-error', e => {
+    const detail = e.detail || {};
+    const msg = typeof detail.message === 'string' ? detail.message : JSON.stringify(detail.message || detail, null, 2);
+    alert(msg);
+});
+
+// ── Init ──
+
+document.getElementById('reload-btn').addEventListener('click', loadDashboard);
+
+let dashboardTimer = setInterval(loadDashboard, 10000);
+
+// Pass cluster node data to launch modal when available
+const clusterPanel = document.querySelector('cluster-panel');
+if (clusterPanel) {
+    clusterPanel.addEventListener('cluster-loaded', e => {
+        if (launchModal && !launchModal.classList.contains('hidden')) {
+            loadLaunchNodes(launchTaskData?.ssh);
+        }
+    });
+}
+
+loadDashboard();
 </script>
 {% endblock %}

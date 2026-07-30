@@ -141,11 +141,11 @@ class TestNode:
 
 
 class TestNodesObserver:
-    @patch("wes.clusters.observer._ssh_run")
-    def test_get_nodes_pairs_info_and_capacity(self, mock_ssh):
-        mock_ssh.side_effect = [
-            ["gpu0|gpu|idle|8|1|32000|none", "cpu0|compute|idle|4|0|8000|"],
-            [SCONTROL_V100, SCONTROL_CPU0],
+    @patch("wes.remote.runner.SshRunner.run_command")
+    def test_get_nodes_pairs_info_and_capacity(self, mock_run):
+        mock_run.side_effect = [
+            (True, ["gpu0|gpu|idle|8|1|32000|none", "cpu0|compute|idle|4|0|8000|"]),
+            (True, [SCONTROL_V100, SCONTROL_CPU0]),
         ]
         observer = NodesObserver("testhost")
         nodes = observer.get_nodes()
@@ -155,9 +155,9 @@ class TestNodesObserver:
         assert nodes[1].info.name == "gpu0"
         assert nodes[1].capacity.name == "gpu0"
 
-    @patch("wes.clusters.observer._ssh_run")
-    def test_get_nodes_empty(self, mock_ssh):
-        mock_ssh.side_effect = [[], []]
+    @patch("wes.remote.runner.SshRunner.run_command")
+    def test_get_nodes_empty(self, mock_run):
+        mock_run.side_effect = [(True, []), (True, [])]
         observer = NodesObserver("testhost")
         nodes = observer.get_nodes()
         assert nodes == []
@@ -167,12 +167,15 @@ class TestNodesObserver:
 
 
 class TestJobsQuery:
-    @patch("wes.jobs.query._ssh_run")
-    def test_get_parses_jobs(self, mock_ssh):
-        mock_ssh.return_value = [
-            "12345|user1|train|RUNNING|00:30|gpu0|gpu||2|8000",
-            "12346|user2|eval|PENDING|0:00||compute||4|16000",
-        ]
+    @patch("wes.remote.runner.SshRunner.run_command")
+    def test_get_parses_jobs(self, mock_run):
+        mock_run.return_value = (
+            True,
+            [
+                "12345|user1|train|RUNNING|00:30|gpu0|gpu||2|8000|1000",
+                "12346|user2|eval|PENDING|0:00||compute||4|16000|500",
+            ],
+        )
         query = JobsQuery("testhost")
         jobs = query.get()
         assert len(jobs) == 2
@@ -181,22 +184,27 @@ class TestJobsQuery:
         assert jobs[0].name == "train"
         assert jobs[0].state == "RUNNING"
         assert jobs[0].cpus == "2"
+        assert jobs[0].priority == "1000"
         assert jobs[1].job_id == "12346"
         assert jobs[1].partition == "compute"
+        assert jobs[1].priority == "500"
 
-    @patch("wes.jobs.query._ssh_run")
-    def test_get_skips_short_lines(self, mock_ssh):
-        mock_ssh.return_value = [
-            "12345|user1|train|RUNNING|00:30|gpu0|gpu||2|8000",
-            "bad|line",
-        ]
+    @patch("wes.remote.runner.SshRunner.run_command")
+    def test_get_skips_short_lines(self, mock_run):
+        mock_run.return_value = (
+            True,
+            [
+                "12345|user1|train|RUNNING|00:30|gpu0|gpu||2|8000|1000",
+                "bad|line",
+            ],
+        )
         query = JobsQuery("testhost")
         jobs = query.get()
         assert len(jobs) == 1
 
-    @patch("wes.jobs.query._ssh_run")
-    def test_get_empty(self, mock_ssh):
-        mock_ssh.return_value = []
+    @patch("wes.remote.runner.SshRunner.run_command")
+    def test_get_empty(self, mock_run):
+        mock_run.return_value = (True, [])
         query = JobsQuery("testhost")
         jobs = query.get()
         assert jobs == []
