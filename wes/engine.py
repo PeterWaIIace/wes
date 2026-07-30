@@ -22,6 +22,7 @@ class Engine:
         self.job_scanners = {}
         self.jobs = {}
         self.run = True
+        self._cleaned: set[str] = set()
 
         self.engine_lock = Lock()
         self.sync_thread = Thread(target=self.__sync_thread)
@@ -31,6 +32,7 @@ class Engine:
         try:
             while self.run:
                 self.sync_jobs()
+                self.cleanup_jobs()
                 self.scan_jobs()
                 self.scan_slurm_info()
         finally:
@@ -60,6 +62,18 @@ class Engine:
     def sync_jobs(self):
         for job in self.jobs.values():
             job.sync()
+
+    @thread_safe("engine_lock")
+    def cleanup_jobs(self):
+        for ns, job in list(self.jobs.items()):
+            if ns in self._cleaned:
+                continue
+            if not job.info or not job.task.cleanup_git:
+                continue
+            if job.info.state in ("COMPLETED", "FAILED", "CANCELLED"):
+                print(f"Cleaning up remote files for {job.job_name} ({job.info.state})")
+                job.cleanup()
+                self._cleaned.add(ns)
 
     @thread_safe("engine_lock")
     def scan_jobs(self):
@@ -96,6 +110,10 @@ class Engine:
                 if user.name == job.user:
                     user_jobs.append(job)
         return user_jobs
+
+    @thread_safe("engine_lock")
+    def get_user_jobs(self) -> list[Job]:
+        return list(self.jobs.values())
 
     @thread_safe("engine_lock")
     def stop(self):

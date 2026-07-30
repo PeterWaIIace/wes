@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 from wes.cluster import Cluster
+from wes.jobs.job import SshItem
 from wes.remote.runner import SshRunner
 
 
@@ -103,3 +107,18 @@ def read_remote_log(ssh: str, path: str) -> str:
     runner = SshRunner(ssh)
     ok, lines = runner.run_command(f"cat {path}")
     return "\n".join(lines) if ok else ""
+
+
+def list_remote_files(ssh: str, directory: str) -> list[str]:
+    runner = SshRunner(ssh)
+    ok, lines = runner.run_command(f"find {directory} -type f 2>/dev/null")
+    return lines if ok else []
+
+
+def get_remote_file(ssh: str, path: str) -> str | None:
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=Path(path).suffix)
+    item = SshItem(h_path=tmp.name, r_path=path, ssh_config=ssh)
+    item.sync()
+    if Path(tmp.name).exists():
+        return tmp.name
+    return None

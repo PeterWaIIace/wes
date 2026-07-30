@@ -5,14 +5,11 @@ import io
 import csv
 import json
 import logging
-import tempfile
-import subprocess
 from pathlib import Path
 
 import yaml
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
-from wes.jobs.job import SshItem
 from wes.jobs.query import JobsQuery
 from wes.remote.runner import SshRunner
 from wes.jobs.scanner import JobScanner
@@ -22,6 +19,8 @@ from web.engine import (
     cancel_slurm_jobs,
     get_cluster_data,
     get_nodes,
+    get_remote_file,
+    list_remote_files,
     read_remote_log,
     remove_remote_dir,
 )
@@ -525,12 +524,9 @@ def get_job_remote_artifacts(job_id: str) -> list[dict]:
         try:
             for j in JobsQuery(ssh).get():
                 if j.job_id == job_id:
-                    name = cached.get("task_name") or j.name
-                    runner = SshRunner(ssh)
-                    ok, lines = runner.run_command(f"find {name} -type f 2>/dev/null")
-                    if not ok:
-                        return []
-                    return _parse_remote_files(lines)
+                    directory = cached.get("task_name") or j.name
+                    files = list_remote_files(ssh, directory)
+                    return _parse_remote_files(files)
         except Exception:
             pass
 
@@ -541,11 +537,8 @@ def get_job_remote_artifacts(job_id: str) -> list[dict]:
             ssh = config.get("job", {}).get("ssh_config", "")
             task_name = config.get("task", {}).get("name", "")
             job_dir = f"{task_name}/{job_id}"
-            runner = SshRunner(ssh)
-            ok, lines = runner.run_command(f"find {job_dir} -type f 2>/dev/null")
-            if not ok:
-                return []
-            return _parse_remote_files(lines)
+            files = list_remote_files(ssh, job_dir)
+            return _parse_remote_files(files)
         except Exception:
             continue
     return []
@@ -559,21 +552,17 @@ def serve_job_remote_artifact(job_id: str, path: str):
 
     ssh = cached.get("ssh", "")
     if ssh:
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=Path(path).suffix)
-        item = SshItem(h_path=tmp.name, r_path=path, ssh_config=ssh)
-        item.sync()
-        if Path(tmp.name).exists():
-            return FileResponse(tmp.name, filename=Path(path).name)
+        tmp = get_remote_file(ssh, path)
+        if tmp:
+            return FileResponse(tmp, filename=Path(path).name)
 
     for ssh in _known_ssh_hosts():
         try:
             for j in JobsQuery(ssh).get():
                 if j.job_id == job_id:
-                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=Path(path).suffix)
-                    item = SshItem(h_path=tmp.name, r_path=path, ssh_config=ssh)
-                    item.sync()
-                    if Path(tmp.name).exists():
-                        return FileResponse(tmp.name, filename=Path(path).name)
+                    tmp = get_remote_file(ssh, path)
+                    if tmp:
+                        return FileResponse(tmp, filename=Path(path).name)
         except Exception:
             pass
     raise HTTPException(status_code=404, detail="Artifact not found")
@@ -590,15 +579,13 @@ def get_job_remote_csv(job_id: str) -> ProgressData:
             for j in JobsQuery(ssh).get():
                 if j.job_id == job_id:
                     name = cached.get("task_name") or j.name
-                    csv_paths = _ssh_run(
-                        ssh, f"find {name} -name '*.csv' -type f 2>/dev/null | head -1"
-                    )
+                    csv_files = list_remote_files(ssh, name)
+                    csv_paths = [f for f in csv_files if f.endswith(".csv")]
                     if not csv_paths:
                         return ProgressData()
-                    content_lines = _ssh_run(ssh, f"cat {csv_paths[0].strip()}")
-                    if not content_lines:
+                    content = read_remote_log(ssh, csv_paths[0])
+                    if not content:
                         return ProgressData()
-                    content = "\n".join(content_lines)
                     reader = csv.reader(io.StringIO(content))
                     rows = list(reader)
                     if rows:

@@ -554,6 +554,8 @@ configPanel.addEventListener('config-error', e => {
 
 document.getElementById('reload-btn').addEventListener('click', loadDashboard);
 
+let dashboardTimer = setInterval(loadDashboard, 10000);
+
 // Pass cluster node data to launch modal when available
 const clusterPanel = document.querySelector('cluster-panel');
 if (clusterPanel) {

@@ -46,7 +46,7 @@ class JobsQuery:
         user_flag = f"-u {user}" if user else ""
         runner = SshRunner(self.ssh_config)
         ok, lines = runner.run_command(
-            f"sacct {user_flag} --hours={hours} -o '{fmt}' --noheader",
+            f"sacct {user_flag} -o '{fmt}' --noheader",
         )
         if not ok:
             return []
