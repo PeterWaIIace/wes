@@ -4,7 +4,11 @@ from wes.jobs.job import Job, JobInfo
 from wes.jobs.scanner import JobScanner
 from wes.jobs.query import JobsQuery
 from wes.remote.runner import SshRunner
+from wes.utils import thread_safe
 
+from threading import Thread, Lock
+
+import time
 class User:
 
     def __init__(self, ssh_config: str):
@@ -17,7 +21,27 @@ class Engine:
         self.current_users = {}
         self.job_scanners = {}
         self.jobs = {}
+        self.run = True
 
+        self.engine_lock = Lock()
+        self.sync_thread = Thread(target=self.__sync_thread)
+        self.sync_thread.start()
+
+    def __sync_thread(self):
+        try:
+            while self.run:
+                self.sync_jobs()
+                self.scan_jobs()
+                self.scan_slurm_info()
+        finally:
+            print("Sync thread exiting...")
+
+    @thread_safe("engine_lock")
+    def add_user(self, ssh_config: str):
+        self.current_users[ssh_config] = User(ssh_config)
+        self.job_scanners[ssh_config] = JobScanner(ssh_config)
+
+    @thread_safe("engine_lock")
     def start_jobs(self, task_file: str = "task.wes"):
         wes = WESParser()
         new_tasks = wes.parse(task_file)
@@ -32,10 +56,12 @@ class Engine:
             job.upload_scripts()
             job.execute_job()
 
+    @thread_safe("engine_lock")
     def sync_jobs(self):
         for job in self.jobs.values():
             job.sync()
 
+    @thread_safe("engine_lock")
     def scan_jobs(self):
         for ssh_conf, scanner in self.job_scanners.items():
             jobs = scanner.scan()
@@ -43,25 +69,49 @@ class Engine:
                 if job.namespace not in self.jobs.keys():
                     self.jobs[job.namespace] = job
 
-    def get_jobs(self) -> list[Job]:
+    @thread_safe("engine_lock")
+    def scan_slurm_info(self):
+        infos = []
+        for ssh_conf, user in self.current_users.items():
+            infos += JobsQuery(ssh_conf).get()
+
+        infos = {info.name : info for info in infos}
+        for job in self.jobs.values():
+            if job.job_name in infos:
+                job.set_info(infos[job.job_name])
+                print(job.job_name, "info set:", job.info)
+
+    @thread_safe("engine_lock")
+    def get_infos(self) -> list[Job]:
         jobs = []
         for ssh_conf, user in self.current_users.items():
             jobs += JobsQuery(ssh_conf).get()
         return jobs
 
-    def get_user_jobs(self) -> list[Job]:
+    @thread_safe("engine_lock")
+    def get_user_infos(self) -> list[Job]:
         user_jobs = []
         for ssh_conf, user in self.current_users.items():
-            for job in self.get_jobs():
+            for job in self.get_infos():
                 if user.name == job.user:
                     user_jobs.append(job)
         return user_jobs
 
+    @thread_safe("engine_lock")
+    def stop(self):
+        self.run = False
+        print("stopping engine...")
+        self.sync_thread.join()
+        print("engine stopped.")
+
 if __name__ == "__main__":
     engine = Engine()
+    engine.add_user("hpc")
     engine.start_jobs()
-    engine.scan_jobs()
-    print("=====================")
-    print("engine.get_jobs():", len(engine.jobs))
-    engine.sync_jobs()
-    print(engine.get_user_jobs())
+    # print("=====================")
+    # print("engine.get_jobs():", len(engine.jobs))
+    # print(engine.get_user_infos())
+    while t < 10:
+        time.sleep(1)
+        t += 1
+    engine.stop()

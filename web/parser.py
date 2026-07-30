@@ -12,6 +12,7 @@ VALID_FIELDS = {
     "ssh",
     "job",
     "run",
+    "pre",
     "post",
     "artifacts",
     "cleanup",
@@ -80,6 +81,7 @@ def _process_task(task_data: dict) -> dict:
         "ssh": task_data["ssh"],
         "job": task_data["job"],
         "run": task_data.get("run", []),
+        "pre": task_data.get("pre", ""),
         "post": task_data.get("post", ""),
         "artifacts": task_data.get("artifacts", []),
         "cleanup": task_data.get("cleanup", False),
@@ -121,7 +123,7 @@ def _validate_task(name: str, data: dict) -> None:
 def task_to_wes_yaml(task: dict) -> str:
     name = task.get("name", "unnamed")
     fields: dict[str, str | list | bool] = {}
-    for key in ("git_url", "branch", "ssh", "job", "run", "post", "artifacts", "cleanup"):
+    for key in ("git_url", "branch", "ssh", "job", "run", "pre", "post", "artifacts", "cleanup"):
         val = task.get(key)
         if val is not None and val != "" and val != [] and val is not False:
             fields[key] = val

@@ -48,8 +48,10 @@ class SshItem(MirrorItem):
         print(f"Copying {self.h_path}/{self.h_name} to {self.r_path} result: {result}")
 
     def sync(self):
-        print("SSHItem.sync() called for", self.r_path, self.r_name, "to", self.h_path, self.h_name)
-        self.ssh.scp_from(self.r_path, self.r_name, self.h_path + "/" + self.h_name, r=True)
+        print("SSHItem.sync()", self.r_path, self.r_name, "->", self.h_path, self.h_name)
+        ok = self.ssh.scp_from(self.r_path, self.r_name, self.h_path + "/" + self.h_name, r=True)
+        if not ok:
+            print(f"  ✗ rsync failed: {self.ssh.ssh_config}:{self.r_path}/{self.r_name} -> {self.h_path}/{self.h_name}")
 
 
 class JobConfig(SshItem):
@@ -135,6 +137,11 @@ class Job:
         self._setup_pre_script()
         self._setup_job_config()
 
+        self.info = None # lazy init
+
+    def set_info(self, job_info: JobInfo):
+        self.info = job_info
+
     def _setup_artifacts(self):
         self.artifacts = []
         for path in self.task.artifacts:
@@ -186,6 +193,7 @@ class Job:
         self.job_ssh_client.cmd(f"rm -rf {self.job_dir}")
 
     def upload_scripts(self) -> None:
+        print("====> Uploading scripts for job:", self.job_name)
         self.script.copy()
         if self.pre_script:
             self.pre_script.copy()

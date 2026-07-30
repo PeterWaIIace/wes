@@ -11,6 +11,7 @@ class TaskInfo(BaseModel):
     job: str = ""
     path: str = "."
     run: list[str] = []
+    pre: str = ""
     post: str = ""
     artifacts: list[str] = []
     cleanup: bool = False

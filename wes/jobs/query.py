@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from wes.jobs.job import JobInfo
-from wes.remote.runner import _ssh_run
+from wes.remote.runner import SshRunner
 
 
 class JobsQuery:
@@ -16,7 +16,10 @@ class JobsQuery:
 
     def get(self) -> list[JobInfo]:
         fmt = "%i|%u|%j|%T|%M|%N|%P|%R|%C|%m"
-        lines = _ssh_run(self.ssh_config, f"squeue -o '{fmt}'")
+        runner = SshRunner(self.ssh_config)
+        ok, lines = runner.run_command(f"squeue -o '{fmt}'")
+        if not ok:
+            return []
         jobs: list[JobInfo] = []
         for line in lines:
             parts = line.split("|")
@@ -41,10 +44,12 @@ class JobsQuery:
     def get_recent(self, user: str = "", hours: int = 24) -> list[JobInfo]:
         fmt = "%i|%u|%j|%T|%M|%N|%P|%R|%C|%m"
         user_flag = f"-u {user}" if user else ""
-        lines = _ssh_run(
-            self.ssh_config,
+        runner = SshRunner(self.ssh_config)
+        ok, lines = runner.run_command(
             f"sacct {user_flag} --hours={hours} -o '{fmt}' --noheader",
         )
+        if not ok:
+            return []
         jobs: list[JobInfo] = []
         for line in lines:
             parts = line.split("|")

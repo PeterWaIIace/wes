@@ -3,6 +3,7 @@ from __future__ import annotations
 import shlex
 import subprocess
 
+from threading import Thread, Lock
 
 class SshRunner:
     def __init__(self, ssh_config: str, path_prefix : str = "") -> None:
@@ -27,10 +28,10 @@ class SshRunner:
             text=True,
             check=False,
         )
-        print("result:", result)
         if result.returncode != 0:
-            print(f"ssh command failed: {result.stderr}")
+            print(f"[\033[31m ERROR \033[0m] ssh command failed: {result.stderr}")
             return False, []
+        print(f"[\033[32m OK \033[0m] ssh command succeeded: {cmd}")
         print("--------------")
         return True, [
             line
@@ -95,19 +96,3 @@ class SshRunner:
                 self.log(f"rsync error: {stderr}", "✗")
             return False
         return True
-
-
-def _ssh_run(ssh_config: str, cmd: str) -> list[str]:
-    result = subprocess.run(
-        ["ssh", ssh_config, f"bash -lc {shlex.quote(cmd)}"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        return []
-    return [
-        line
-        for line in result.stdout.strip().splitlines()
-        if line.strip() and not line.startswith("JOBID")
-    ]

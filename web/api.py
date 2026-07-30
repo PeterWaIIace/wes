@@ -1,15 +1,21 @@
 from __future__ import annotations
 
-import csv
+import re
 import io
+import csv
 import json
 import logging
-import re
+import tempfile
+import subprocess
 from pathlib import Path
 
 import yaml
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
+from wes.jobs.job import SshItem
+from wes.jobs.query import JobsQuery
+from wes.remote.runner import SshRunner
+from wes.jobs.scanner import JobScanner
 
 from web.cache import JobCache
 from web.engine import (
@@ -131,6 +137,7 @@ def _parse_wes_files() -> list[TaskInfo]:
                         job=task_dict["job"],
                         path=task_dict["path"],
                         run=task_dict["run"],
+                        pre=task_dict["pre"],
                         post=task_dict["post"],
                         artifacts=task_dict["artifacts"],
                         cleanup=task_dict["cleanup"],
@@ -275,8 +282,6 @@ def _build_cache_index() -> dict[str, dict]:
 
 @router.get("/jobs", response_model=list[JobSummary])
 def list_jobs() -> list[JobSummary]:
-    from wes.jobs.query import JobsQuery
-    from wes.jobs.scanner import JobScanner
 
     cache_idx = _build_cache_index()
     seen: set[str] = set()
@@ -380,8 +385,6 @@ def list_jobs() -> list[JobSummary]:
 
 @router.get("/jobs/{job_id}", response_model=JobSummary)
 def get_job(job_id: str) -> JobSummary:
-    from wes.jobs.query import JobsQuery
-
     cache_idx = _build_cache_index()
 
     for ssh in _known_ssh_hosts():
@@ -479,8 +482,6 @@ def get_job_logs(job_id: str) -> LogData:
 
 @router.get("/jobs/{job_id}/remote-logs")
 def get_job_remote_logs(job_id: str) -> dict[str, str]:
-    from wes.jobs.query import JobsQuery
-
     cache_idx = _build_cache_index()
     cached = cache_idx.get(job_id, {})
 
@@ -489,10 +490,12 @@ def get_job_remote_logs(job_id: str) -> dict[str, str]:
             for j in JobsQuery(ssh).get():
                 if j.job_id == job_id:
                     name = cached.get("task_name") or j.name
+                    run_id = cached.get("run_id", "")
+                    job_dir = f"{name}/{run_id}" if run_id else name
                     return {
-                        "stdout": read_remote_log(ssh, f"{name}/job_output.txt"),
-                        "stderr": read_remote_log(ssh, f"{name}/job_error.txt"),
-                        "pre_run": read_remote_log(ssh, f"{name}/pre_run_output.txt"),
+                        "stdout": read_remote_log(ssh, f"{job_dir}/job_output.txt"),
+                        "stderr": read_remote_log(ssh, f"{job_dir}/job_error.txt"),
+                        "pre_run": read_remote_log(ssh, f"{job_dir}/pre_run_output.txt"),
                     }
         except Exception:
             pass
@@ -501,7 +504,8 @@ def get_job_remote_logs(job_id: str) -> dict[str, str]:
     if config:
         ssh = config.get("job", {}).get("ssh_config", "")
         task_name = config.get("task", {}).get("name", "")
-        job_dir = f"{task_name}/{job_id}"
+        namespace = config.get("job", {}).get("namespace", "")
+        job_dir = f"{task_name}/{namespace}" if namespace else task_name
         return {
             "stdout": read_remote_log(ssh, f"{job_dir}/job_output.txt"),
             "stderr": read_remote_log(ssh, f"{job_dir}/job_error.txt"),
@@ -513,8 +517,6 @@ def get_job_remote_logs(job_id: str) -> dict[str, str]:
 
 @router.get("/jobs/{job_id}/remote-artifacts")
 def get_job_remote_artifacts(job_id: str) -> list[dict]:
-    from wes.jobs.query import JobsQuery
-    from wes.remote.runner import SshRunner
 
     cache_idx = _build_cache_index()
     cached = cache_idx.get(job_id, {})
@@ -551,23 +553,26 @@ def get_job_remote_artifacts(job_id: str) -> list[dict]:
 
 @router.get("/jobs/{job_id}/remote-artifacts/{path:path}")
 def serve_job_remote_artifact(job_id: str, path: str):
-    import subprocess
-    import tempfile
 
-    from wes.jobs.query import JobsQuery
+    cache_idx = _build_cache_index()
+    cached = cache_idx.get(job_id, {})
+
+    ssh = cached.get("ssh", "")
+    if ssh:
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=Path(path).suffix)
+        item = SshItem(h_path=tmp.name, r_path=path, ssh_config=ssh)
+        item.sync()
+        if Path(tmp.name).exists():
+            return FileResponse(tmp.name, filename=Path(path).name)
 
     for ssh in _known_ssh_hosts():
         try:
             for j in JobsQuery(ssh).get():
                 if j.job_id == job_id:
                     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=Path(path).suffix)
-                    result = subprocess.run(
-                        ["scp", f"{ssh}:{path}", tmp.name],
-                        capture_output=True,
-                        text=True,
-                        check=False,
-                    )
-                    if result.returncode == 0:
+                    item = SshItem(h_path=tmp.name, r_path=path, ssh_config=ssh)
+                    item.sync()
+                    if Path(tmp.name).exists():
                         return FileResponse(tmp.name, filename=Path(path).name)
         except Exception:
             pass
@@ -576,8 +581,6 @@ def serve_job_remote_artifact(job_id: str, path: str):
 
 @router.get("/jobs/{job_id}/remote-csv")
 def get_job_remote_csv(job_id: str) -> ProgressData:
-    from wes.jobs.query import JobsQuery
-    from wes.remote.runner import _ssh_run
 
     cache_idx = _build_cache_index()
     cached = cache_idx.get(job_id, {})
