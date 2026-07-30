@@ -234,6 +234,62 @@ nav {
     margin-left: 0.5rem;
 }
 
+/* ===== JOBS TOOLBAR ===== */
+.jobs-toolbar {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid var(--border-subtle);
+}
+.jobs-toolbar .input {
+    padding: 0.3rem 0.55rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.78rem;
+}
+.jobs-toolbar .input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+#jobs-search { flex: 1; min-width: 0; }
+#jobs-filter-state { width: 110px; }
+
+/* ===== JOBS TABLE (all-users view) ===== */
+.jobs-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+}
+.jobs-table th {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-surface);
+    position: sticky;
+    top: 0;
+    white-space: nowrap;
+}
+.jobs-table th:hover { color: var(--text); }
+.jobs-table th.sorted { color: var(--primary); }
+.jobs-table td {
+    padding: 0.45rem 0.75rem;
+    border-bottom: 1px solid var(--border-subtle);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+.jobs-table tr:hover td { background: var(--bg-hover); }
+.jobs-table .mono { font-family: var(--mono); font-size: 0.78rem; }
+.jobs-table .jt-empty { text-align: center; color: var(--text-muted); padding: 1.5rem; font-size: 0.85rem; }
+
 /* ===== NODE GRID ===== */
 .node-grid {
     display: grid;
@@ -917,6 +973,15 @@ nav {
     background: var(--bg-surface);
     padding: 0.1rem 0.4rem;
     border-radius: 99px;
+}
+.tt-priority {
+    font-size: 0.68rem;
+    font-family: var(--mono);
+    color: var(--text-muted);
+    background: var(--bg-surface);
+    padding: 0.1rem 0.4rem;
+    border-radius: 99px;
+    white-space: nowrap;
 }
 .task-tile-edit {
     font-size: 0.85rem;

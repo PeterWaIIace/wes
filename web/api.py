@@ -34,7 +34,6 @@ from web.models import (
 )
 from web.parser import parse_wes_file
 from wes.jobs.query import JobsQuery
-from wes.jobs.scanner import JobScanner
 
 log = logging.getLogger("wes.web")
 
@@ -280,102 +279,41 @@ def _build_cache_index() -> dict[str, dict]:
 
 @router.get("/jobs", response_model=list[JobSummary])
 def list_jobs() -> list[JobSummary]:
-    cache_idx = _build_cache_index()
-    seen: set[str] = set()
-    seen_namespaces: set[str] = set()
+    from wes.engine import Engine
+
+    engine = Engine()
+    for ssh in _known_ssh_hosts():
+        engine.add_user(ssh)
+    engine.scan_jobs()
+    engine.scan_slurm_info()
+
     jobs: list[JobSummary] = []
+    for job in engine.get_user_jobs():
+        if job.info:
+            state = job.info.state
+            job_id = job.info.job_id
+        else:
+            state = "COMPLETED"
+            job_id = job.namespace
 
-    for ssh in _known_ssh_hosts():
-        user = _get_ssh_user(ssh)
-        try:
-            query = JobsQuery(ssh)
-            squeue_jobs = query.get()
-            recent_jobs = query.get_recent(user=user, hours=48) if user else []
-        except Exception:
-            continue
-
-        for j in squeue_jobs:
-            if user and j.user != user:
-                continue
-            if j.job_id in seen:
-                continue
-            seen.add(j.job_id)
-            cached = cache_idx.get(j.job_id, {})
-            if cached.get("run_id"):
-                seen_namespaces.add(cached["run_id"])
-            jobs.append(
-                JobSummary(
-                    job_id=j.job_id,
-                    task_name=cached.get("task_name") or j.name,
-                    state=j.state,
-                    run_id=cached.get("run_id", ""),
-                    jobs_ids=cached.get("jobs_ids", []),
-                    git_url=cached.get("git_url", ""),
-                    branch=cached.get("branch", ""),
-                    ssh=ssh,
-                    job=cached.get("job", ""),
-                    partition=j.partition,
-                    cpus=j.cpus,
-                    gpus=cached.get("gpus", ""),
-                    memory=j.memory,
-                    time=j.time,
-                    nodelist=j.nodes,
-                )
+        jobs.append(
+            JobSummary(
+                job_id=job_id,
+                task_name=job.task.name,
+                state=state,
+                run_id=job.namespace,
+                git_url=job.task.git_url,
+                branch=job.task.branch,
+                ssh=job.ssh_config,
+                partition=job.task.partition,
+                cpus=job.task.cpus,
+                gpus=job.task.gpus,
+                memory=job.task.memory,
+                time=job.task.time,
+                nodelist=job.task.nodelist,
+                priority=job.info.priority if job.info else "",
             )
-
-        for j in recent_jobs:
-            if j.job_id in seen:
-                continue
-            seen.add(j.job_id)
-            cached = cache_idx.get(j.job_id, {})
-            if cached.get("run_id"):
-                seen_namespaces.add(cached["run_id"])
-            jobs.append(
-                JobSummary(
-                    job_id=j.job_id,
-                    task_name=cached.get("task_name") or j.name,
-                    state=j.state,
-                    run_id=cached.get("run_id", ""),
-                    jobs_ids=cached.get("jobs_ids", []),
-                    git_url=cached.get("git_url", ""),
-                    branch=cached.get("branch", ""),
-                    ssh=ssh,
-                    job=cached.get("job", ""),
-                    partition=j.partition,
-                    cpus=j.cpus,
-                    gpus=cached.get("gpus", ""),
-                    memory=j.memory,
-                    time=j.time,
-                    nodelist=j.nodes,
-                )
-            )
-
-    for ssh in _known_ssh_hosts():
-        try:
-            scanner = JobScanner(ssh)
-            for job in scanner.scan():
-                if job.namespace in seen_namespaces:
-                    continue
-                seen_namespaces.add(job.namespace)
-                jobs.append(
-                    JobSummary(
-                        job_id=job.namespace,
-                        task_name=job.task.name,
-                        state="COMPLETED",
-                        run_id=job.namespace,
-                        git_url=job.task.git_url,
-                        branch=job.task.branch,
-                        ssh=ssh,
-                        partition=job.task.partition,
-                        cpus=job.task.cpus,
-                        gpus=job.task.gpus,
-                        memory=job.task.memory,
-                        time=job.task.time,
-                        nodelist=job.task.nodelist,
-                    )
-                )
-        except Exception:
-            continue
+        )
 
     return jobs
 

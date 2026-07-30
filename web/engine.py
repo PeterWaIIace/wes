@@ -48,6 +48,7 @@ def get_cluster_data(ssh: str) -> dict:
                 "user": j.user,
                 "name": j.name,
                 "state": j.state,
+                "priority": j.priority,
                 "time": j.time,
                 "nodes": j.nodes,
                 "partition": j.partition,

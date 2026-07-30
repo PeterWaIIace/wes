@@ -41,6 +41,7 @@ class JobSummary(BaseModel):
     memory: str = ""
     time: str = ""
     nodelist: str = ""
+    priority: str = ""
 
 
 class CreateTaskRequest(BaseModel):

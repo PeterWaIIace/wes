@@ -22,6 +22,7 @@ class JobInfo:
     reason: str
     cpus: str
     memory: str
+    priority: str = ""
 
 
 class MirrorItem:

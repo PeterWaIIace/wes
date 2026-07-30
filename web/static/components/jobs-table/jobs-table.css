@@ -14,7 +14,11 @@
     position: sticky;
     top: 0;
     white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
 }
+.jt-table th:hover { color: var(--text, #000); }
+.jt-table th.sorted { color: var(--primary, #004a6c); }
 .jt-table td {
     padding: 0.45rem 0.75rem;
     border-bottom: 1px solid var(--border-subtle, #ececee);
@@ -26,6 +30,7 @@
 .jt-table tr:hover td { background: var(--bg-hover, #f0f1f3); }
 .jt-table .mono { font-family: var(--mono, monospace); font-size: 0.78rem; }
 .jt-table .jt-name { font-weight: 500; max-width: 250px; }
+.jt-table .jt-prio { font-family: var(--mono, monospace); font-size: 0.78rem; font-weight: 600; }
 .jt-empty { text-align: center; color: var(--text-muted, #9aa0a6); padding: 1.5rem; font-size: 0.85rem; }
 .dot {
     width: 8px; height: 8px;

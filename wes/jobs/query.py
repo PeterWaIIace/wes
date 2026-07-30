@@ -15,7 +15,7 @@ class JobsQuery:
         return any(jid in alive for jid in job_ids)
 
     def get(self) -> list[JobInfo]:
-        fmt = "%i|%u|%j|%T|%M|%N|%P|%R|%C|%m"
+        fmt = "%i|%u|%j|%T|%M|%N|%P|%R|%C|%m|%Q"
         runner = SshRunner(self.ssh_config)
         ok, lines = runner.run_command(f"squeue -o '{fmt}'")
         if not ok:
@@ -23,7 +23,7 @@ class JobsQuery:
         jobs: list[JobInfo] = []
         for line in lines:
             parts = line.split("|")
-            if len(parts) < 10:
+            if len(parts) < 11:
                 continue
             jobs.append(
                 JobInfo(
@@ -37,12 +37,13 @@ class JobsQuery:
                     reason=parts[7].strip(),
                     cpus=parts[8].strip(),
                     memory=parts[9].strip(),
+                    priority=parts[10].strip(),
                 )
             )
         return jobs
 
     def get_recent(self, user: str = "", hours: int = 24) -> list[JobInfo]:
-        fmt = "%i|%u|%j|%T|%M|%N|%P|%R|%C|%m"
+        fmt = "%i|%u|%j|%T|%M|%N|%P|%R|%C|%m|%Q"
         user_flag = f"-u {user}" if user else ""
         runner = SshRunner(self.ssh_config)
         ok, lines = runner.run_command(
@@ -53,7 +54,7 @@ class JobsQuery:
         jobs: list[JobInfo] = []
         for line in lines:
             parts = line.split("|")
-            if len(parts) < 10:
+            if len(parts) < 11:
                 continue
             job_id = parts[0].strip()
             if "." in job_id:
@@ -73,6 +74,7 @@ class JobsQuery:
                     reason=parts[7].strip(),
                     cpus=parts[8].strip(),
                     memory=parts[9].strip(),
+                    priority=parts[10].strip(),
                 )
             )
         return jobs

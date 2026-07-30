@@ -172,8 +172,8 @@ class TestJobsQuery:
         mock_run.return_value = (
             True,
             [
-                "12345|user1|train|RUNNING|00:30|gpu0|gpu||2|8000",
-                "12346|user2|eval|PENDING|0:00||compute||4|16000",
+                "12345|user1|train|RUNNING|00:30|gpu0|gpu||2|8000|1000",
+                "12346|user2|eval|PENDING|0:00||compute||4|16000|500",
             ],
         )
         query = JobsQuery("testhost")
@@ -184,15 +184,17 @@ class TestJobsQuery:
         assert jobs[0].name == "train"
         assert jobs[0].state == "RUNNING"
         assert jobs[0].cpus == "2"
+        assert jobs[0].priority == "1000"
         assert jobs[1].job_id == "12346"
         assert jobs[1].partition == "compute"
+        assert jobs[1].priority == "500"
 
     @patch("wes.remote.runner.SshRunner.run_command")
     def test_get_skips_short_lines(self, mock_run):
         mock_run.return_value = (
             True,
             [
-                "12345|user1|train|RUNNING|00:30|gpu0|gpu||2|8000",
+                "12345|user1|train|RUNNING|00:30|gpu0|gpu||2|8000|1000",
                 "bad|line",
             ],
         )

@@ -29,7 +29,18 @@
         <span id="jobs-status" class="cluster-status-text"></span>
     </div>
     <div id="jobs-error"></div>
-    <div id="jobs-list" class="task-tiles"></div>
+    <div class="jobs-toolbar">
+        <input id="jobs-search" class="input" type="search" placeholder="Search jobs..." oninput="renderJobList()">
+        <select id="jobs-filter-state" class="input" onchange="renderJobList()">
+            <option value="">all states</option>
+            <option value="running">running</option>
+            <option value="pending">pending</option>
+            <option value="completed">completed</option>
+            <option value="failed">failed</option>
+            <option value="cancelled">cancelled</option>
+        </select>
+    </div>
+    <div id="jobs-list"></div>
     <div id="jobs-empty" class="empty-state" style="display:none">
         No running jobs
     </div>
@@ -445,40 +456,119 @@ function renderTaskTiles() {
     container.appendChild(addTile);
 }
 
+let jobsSortKey = 'priority';
+let jobsSortAsc = false;
+
 function renderJobList() {
     const container = document.getElementById('jobs-list');
     container.innerHTML = '';
 
-    Object.values(cachedJobs).forEach(job => {
-        const tile = document.createElement('div');
-        tile.className = 'task-tile job-tile';
-        tile.style.cursor = 'pointer';
-        const state = (job.state || 'unknown').toLowerCase();
-        tile.innerHTML = `
-            <div class="tt-top">
-                <span class="dot dot-${state}"></span>
-                <span class="tt-name">${job.job_id}</span>
-                <span class="tt-actions">
-                    <span class="badge badge-${state}">${job.state}</span>
-                    <button class="btn-ghost tt-delete job-cancel-btn" data-job-id="${job.job_id}" title="Cancel">&#x2715;</button>
-                </span>
-            </div>
-            <div class="tt-meta">
-                <span class="tt-repo">${job.task_name || ''}</span>
-                <span class="tt-branch">${job.branch || ''}</span>
-            </div>
-        `;
-        tile.addEventListener('click', e => {
-            if (e.target.closest('.job-cancel-btn')) return;
-            window.location.href = '/jobs/' + encodeURIComponent(job.job_id);
-        });
-        tile.querySelector('.job-cancel-btn').addEventListener('click', e => {
-            e.preventDefault();
-            e.stopPropagation();
-            cancelJob(job.job_id);
-        });
-        container.appendChild(tile);
+    const search = (document.getElementById('jobs-search').value || '').toLowerCase();
+    const filterState = document.getElementById('jobs-filter-state').value;
+
+    let jobs = Object.values(cachedJobs);
+
+    if (search) {
+        jobs = jobs.filter(j =>
+            (j.job_id || '').toLowerCase().includes(search) ||
+            (j.task_name || '').toLowerCase().includes(search) ||
+            (j.run_id || '').toLowerCase().includes(search) ||
+            (j.branch || '').toLowerCase().includes(search) ||
+            (j.ssh || '').toLowerCase().includes(search) ||
+            (j.priority || '').toLowerCase().includes(search)
+        );
+    }
+
+    if (filterState) {
+        jobs = jobs.filter(j => (j.state || '').toLowerCase() === filterState);
+    }
+
+    const stateOrder = { running: 0, pending: 1, completed: 2, failed: 3, cancelled: 4 };
+    jobs.sort((a, b) => {
+        let va, vb;
+        if (jobsSortKey === 'priority') {
+            va = parseInt(a.priority) || 0;
+            vb = parseInt(b.priority) || 0;
+        } else if (jobsSortKey === 'state') {
+            va = stateOrder[(a.state || '').toLowerCase()] ?? 99;
+            vb = stateOrder[(b.state || '').toLowerCase()] ?? 99;
+        } else if (jobsSortKey === 'cpus') {
+            va = parseInt(a.cpus) || 0;
+            vb = parseInt(b.cpus) || 0;
+        } else if (jobsSortKey === 'memory') {
+            va = parseInt(a.memory) || 0;
+            vb = parseInt(b.memory) || 0;
+        } else {
+            va = (a[jobsSortKey] || '').toLowerCase();
+            vb = (b[jobsSortKey] || '').toLowerCase();
+        }
+        const cmp = typeof va === 'number' ? va - vb : va.localeCompare(vb);
+        return jobsSortAsc ? cmp : -cmp;
     });
+
+    const colDefs = [
+        { key: 'job_id', label: 'Job ID' },
+        { key: 'task_name', label: 'Task' },
+        { key: 'state', label: 'State' },
+        { key: 'priority', label: 'Priority' },
+        { key: 'cpus', label: 'CPUs' },
+        { key: 'memory', label: 'Memory' },
+        { key: 'time', label: 'Time' },
+        { key: 'partition', label: 'Partition' },
+        { key: 'ssh', label: 'Host' },
+    ];
+
+    const table = document.createElement('table');
+    table.className = 'jobs-table';
+
+    const thead = document.createElement('thead');
+    const tr = document.createElement('tr');
+    colDefs.forEach(col => {
+        const th = document.createElement('th');
+        th.textContent = col.label;
+        th.style.cursor = 'pointer';
+        th.style.userSelect = 'none';
+        if (col.key === jobsSortKey) {
+            th.classList.add('sorted');
+            th.textContent += jobsSortAsc ? ' ▲' : ' ▼';
+        }
+        th.addEventListener('click', () => {
+            if (jobsSortKey === col.key) jobsSortAsc = !jobsSortAsc;
+            else { jobsSortKey = col.key; jobsSortAsc = false; }
+            renderJobList();
+        });
+        tr.appendChild(th);
+    });
+    thead.appendChild(tr);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    if (!jobs.length) {
+        tbody.innerHTML = '<tr><td colspan="9" class="jt-empty">No jobs match</td></tr>';
+    } else {
+        jobs.forEach(job => {
+            const st = (job.state || 'unknown').toLowerCase();
+            const tr = document.createElement('tr');
+            tr.style.cursor = 'pointer';
+            tr.addEventListener('click', () => {
+                window.location.href = '/jobs/' + encodeURIComponent(job.job_id);
+            });
+            tr.innerHTML = `
+                <td><span class="dot dot-${st}"></span> ${job.job_id || ''}</td>
+                <td>${job.task_name || ''}</td>
+                <td><span class="badge badge-${st}">${job.state || ''}</span></td>
+                <td class="mono">${job.priority != null && job.priority !== '' ? job.priority : ''}</td>
+                <td class="mono">${job.cpus || ''}</td>
+                <td class="mono">${job.memory || ''}</td>
+                <td class="mono">${job.time || ''}</td>
+                <td>${job.partition || ''}</td>
+                <td class="mono">${job.ssh || ''}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+    table.appendChild(tbody);
+    container.appendChild(table);
 }
 
 function openConfig(index) {

@@ -5,7 +5,7 @@
 #SBATCH --nodes=1                  # liczba węzłów
 #SBATCH --ntasks=1                 # liczba zadań
 #SBATCH --nodelist=h86             # wybierz GPU
-#SBATCH --cpus-per-task=4          # liczba CPU na zadanie
+#SBATCH --cpus-per-task=2          # liczba CPU na zadanie
 #SBATCH --gres=gpu:1               # liczba i typ gpu
 #SBATCH --mem=16G                  # pamięć RAM
 #SBATCH --time=02:00:00            # maksymalny czas wykonania
