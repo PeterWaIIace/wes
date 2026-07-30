@@ -23,11 +23,11 @@ class TestWESParserValid:
         assert task.name == "my-job"
         assert task.git_url == "ssh://git@example.com/repo.git"
         assert task.ssh_config == "hpc"
-        assert task.job == "scripts/job.sh"
+        assert task.job_script == "scripts/job.sh"
         assert task.branch == ""
-        assert task.path == "."
+        assert task.path == ""
         assert task.artifacts == []
-        assert task.run == []
+        assert task.pre_script is None
         assert task.cleanup_git is False
 
     def test_parse_full_config(self, wes_file) -> None:
@@ -42,7 +42,7 @@ class TestWESParserValid:
                     - scripts/setup.sh
                     - scripts/data.sh
                 job: scripts/train.sh
-                post: scripts/cleanup.sh
+                pre: scripts/setup.sh
                 artifacts:
                     - ml/results
                     - ml/checkpoints
@@ -58,9 +58,8 @@ class TestWESParserValid:
         assert task.branch == "main"
         assert task.path == "/scratch/user"
         assert task.ssh_config == "gpu-cluster"
-        assert task.run == ["scripts/setup.sh", "scripts/data.sh"]
-        assert task.job == "scripts/train.sh"
-        assert task.post == "scripts/cleanup.sh"
+        assert task.job_script == "scripts/train.sh"
+        assert task.pre_script == "scripts/setup.sh"
         assert task.artifacts == ["ml/results", "ml/checkpoints"]
         assert task.cleanup_git is True
 

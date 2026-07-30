@@ -2,20 +2,21 @@ from __future__ import annotations
 
 import json
 
-from wes.tasks.tasks import Task
 from wes.jobs.job import Job
 from wes.remote.runner import SshRunner
+from wes.tasks.tasks import Task
 
 
 class JobScanner:
-
     def __init__(self, ssh_config: str, base_dir: str = ".") -> None:
         self.ssh_config = ssh_config
         self.runner = SshRunner(ssh_config)
         self.base_dir = base_dir
 
     def _list_job_dirs(self) -> list[str]:
-        ok, lines = self.runner.run_command(f"find {self.base_dir} -maxdepth 4 -name '*_config.json'")
+        ok, lines = self.runner.run_command(
+            f"find {self.base_dir} -maxdepth 4 -name '*_config.json'"
+        )
         if not ok:
             return []
         return lines

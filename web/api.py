@@ -1,18 +1,15 @@
 from __future__ import annotations
 
-import re
-import io
 import csv
+import io
 import json
 import logging
+import re
 from pathlib import Path
 
 import yaml
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
-from wes.jobs.query import JobsQuery
-from wes.remote.runner import SshRunner
-from wes.jobs.scanner import JobScanner
 
 from web.cache import JobCache
 from web.engine import (
@@ -36,6 +33,8 @@ from web.models import (
     TaskInfo,
 )
 from web.parser import parse_wes_file
+from wes.jobs.query import JobsQuery
+from wes.jobs.scanner import JobScanner
 
 log = logging.getLogger("wes.web")
 
@@ -281,7 +280,6 @@ def _build_cache_index() -> dict[str, dict]:
 
 @router.get("/jobs", response_model=list[JobSummary])
 def list_jobs() -> list[JobSummary]:
-
     cache_idx = _build_cache_index()
     seen: set[str] = set()
     seen_namespaces: set[str] = set()
@@ -516,7 +514,6 @@ def get_job_remote_logs(job_id: str) -> dict[str, str]:
 
 @router.get("/jobs/{job_id}/remote-artifacts")
 def get_job_remote_artifacts(job_id: str) -> list[dict]:
-
     cache_idx = _build_cache_index()
     cached = cache_idx.get(job_id, {})
 
@@ -546,7 +543,6 @@ def get_job_remote_artifacts(job_id: str) -> list[dict]:
 
 @router.get("/jobs/{job_id}/remote-artifacts/{path:path}")
 def serve_job_remote_artifact(job_id: str, path: str):
-
     cache_idx = _build_cache_index()
     cached = cache_idx.get(job_id, {})
 
@@ -570,7 +566,6 @@ def serve_job_remote_artifact(job_id: str, path: str):
 
 @router.get("/jobs/{job_id}/remote-csv")
 def get_job_remote_csv(job_id: str) -> ProgressData:
-
     cache_idx = _build_cache_index()
     cached = cache_idx.get(job_id, {})
 

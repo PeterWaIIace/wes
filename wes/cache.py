@@ -108,9 +108,8 @@ class JobCache:
             "branch": task.branch,
             "ssh": task.ssh_config,
             "path": task.path,
-            "job": task.job,
-            "run": task.run,
-            "post": task.post,
+            "job": task.job_script,
+            "pre": task.pre_script,
             "artifacts": task.artifacts,
             "cleanup": task.cleanup_git,
             "partition": task.partition,
@@ -119,7 +118,6 @@ class JobCache:
             "memory": task.memory,
             "time": task.time,
             "nodelist": task.nodelist,
-            "run_id": task.run_id,
         }
 
     @staticmethod
@@ -130,7 +128,8 @@ class JobCache:
             branch=data.get("branch", ""),
             path=data.get("path", "."),
             ssh_config=data.get("ssh", ""),
-            job=data.get("job", ""),
+            job_script=data.get("job"),
+            pre_script=data.get("pre"),
             artifacts=data.get("artifacts", []),
             cleanup=data.get("cleanup", False),
             active_jobs=data.get("jobs_ids", []),
@@ -141,5 +140,4 @@ class JobCache:
             memory=data.get("memory", ""),
             time=data.get("time", ""),
             nodelist=data.get("nodelist", ""),
-            run_id=data.get("run_id", ""),
         )

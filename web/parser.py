@@ -50,9 +50,7 @@ def parse_wes_file(config_file: str | Path) -> list[dict]:
     if isinstance(sequence, list):
         for item in sequence:
             if not isinstance(item, dict) or len(item) != 1:
-                raise ConfigError(
-                    f"Each sequence item must be a single-key mapping, got: {item!r}"
-                )
+                raise ConfigError(f"Each sequence item must be a single-key mapping, got: {item!r}")
             for name, task_data in item.items():
                 if not isinstance(task_data, dict):
                     raise ConfigError(f"Task '{name}' config must be a mapping")
@@ -101,9 +99,7 @@ def _validate_task(name: str, data: dict) -> None:
 
     missing = REQUIRED_FIELDS - set(data.keys())
     if missing:
-        raise ConfigError(
-            f"Task '{name}' is missing required fields: {', '.join(sorted(missing))}"
-        )
+        raise ConfigError(f"Task '{name}' is missing required fields: {', '.join(sorted(missing))}")
 
     if not isinstance(data["git_url"], str) or not data["git_url"].strip():
         raise ConfigError(f"Task '{name}': 'git_url' must be a non-empty string")

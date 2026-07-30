@@ -51,7 +51,11 @@ class SshItem(MirrorItem):
         print("SSHItem.sync()", self.r_path, self.r_name, "->", self.h_path, self.h_name)
         ok = self.ssh.scp_from(self.r_path, self.r_name, self.h_path + "/" + self.h_name, r=True)
         if not ok:
-            print(f"  ✗ rsync failed: {self.ssh.ssh_config}:{self.r_path}/{self.r_name} -> {self.h_path}/{self.h_name}")
+            print(
+                f"  ✗ rsync failed: "
+                f"{self.ssh.ssh_config}:{self.r_path}/{self.r_name}"
+                f" -> {self.h_path}/{self.h_name}"
+            )
 
 
 class JobConfig(SshItem):
@@ -89,7 +93,7 @@ class JobConfig(SshItem):
         }
 
         Path(self.h_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(self.h_path, 'w') as f:
+        with open(self.h_path, "w") as f:
             json.dump(config, f, indent=4)
 
 
@@ -137,7 +141,7 @@ class Job:
         self._setup_pre_script()
         self._setup_job_config()
 
-        self.info = None # lazy init
+        self.info = None  # lazy init
 
     def set_info(self, job_info: JobInfo):
         self.info = job_info
@@ -149,7 +153,7 @@ class Job:
             Path(h_path).parent.mkdir(parents=True, exist_ok=True)
             r_path = f"{self.repo_dir}/{path}"
             self.artifacts.append(SshItem(h_path=h_path, r_path=r_path, ssh_config=self.ssh_config))
-        
+
         for log_name in ("job_output.txt", "job_error.txt"):
             h_path = f"results/{self.job_dir}/{log_name}"
             Path(h_path).parent.mkdir(parents=True, exist_ok=True)
@@ -162,9 +166,9 @@ class Job:
         h_path = f"{self.task.job_script}"
         print(f"Setting up script: {h_path} to {r_path}")
         self.script = SshItem(
-            h_path=h_path, #
-            r_path=r_path, 
-            ssh_config=self.ssh_config
+            h_path=h_path,  #
+            r_path=r_path,
+            ssh_config=self.ssh_config,
         )
 
     def _setup_pre_script(self):
@@ -174,15 +178,13 @@ class Job:
         r_path = f"{self.job_dir}/{pre_script}"
         h_path = f"{self.task.pre_script}"
         print(f"Setting up pre-script: {h_path} to {r_path}")
-        self.pre_script = SshItem(
-            h_path=h_path,
-            r_path=r_path,
-            ssh_config=self.ssh_config
-        )
+        self.pre_script = SshItem(h_path=h_path, r_path=r_path, ssh_config=self.ssh_config)
 
     def _setup_job_config(self):
         print(f"{self.job_dir}/{self.task.name}_config.json")
-        self.job_conf = JobConfig(self, self.task, f"{self.job_dir}/{self.task.name}_config.json", self.ssh_config)
+        self.job_conf = JobConfig(
+            self, self.task, f"{self.job_dir}/{self.task.name}_config.json", self.ssh_config
+        )
         self.job_conf.copy()
 
     def sync(self) -> None:
@@ -214,14 +216,13 @@ class Job:
             return State.FAILED
 
         if self.pre_script:
-            ok, result = self.job_ssh_client.cmd(f"ls .")
+            ok, result = self.job_ssh_client.cmd("ls .")
             ok, result = self.job_ssh_client.cmd(f"./{self.pre_script.r_name}")
             print(f"Pre-script output:\n{result}")
             if not ok:
                 print(f"Pre-script failed: {result}")
                 return State.FAILED
 
-        job_path = self.script.r_path
         sbatch_cmd = f"sbatch --parsable --job-name={self.job_name}"
         sbatch_cmd += f" ./{self.script.r_name}"
 

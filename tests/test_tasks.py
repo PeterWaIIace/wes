@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from wes.jobs.query import JobsQuery
 from wes.states import State
 from wes.tasks import Task, _strip_ansi
-from wes.jobs.query import JobsQuery
 
 
 def test_task_defaults() -> None:
@@ -10,13 +10,12 @@ def test_task_defaults() -> None:
     assert task.name == "test"
     assert task.ssh_config == ""
     assert task.branch == ""
-    assert task.job is None
-    assert task.post == ""
+    assert task.job_script is None
+    assert task.pre_script is None
     assert task.cleanup_git is False
     assert task.status is State.PENDING
     assert task.jobs_ids == []
     assert task.artifacts == []
-    assert task.run == []
 
 
 def test_task_custom_fields() -> None:
@@ -26,17 +25,15 @@ def test_task_custom_fields() -> None:
         path="/scratch",
         ssh_config="gpu",
         branch="main",
-        job="train.sh",
-        run=["setup.sh", "data.sh"],
-        post="cleanup.sh",
+        job_script="train.sh",
+        pre_script="setup.sh",
         artifacts=["results", "checkpoints"],
         cleanup=True,
     )
     assert task.ssh_config == "gpu"
     assert task.branch == "main"
-    assert task.job == "train.sh"
-    assert task.run == ["setup.sh", "data.sh"]
-    assert task.post == "cleanup.sh"
+    assert task.job_script == "train.sh"
+    assert task.pre_script == "setup.sh"
     assert task.artifacts == ["results", "checkpoints"]
     assert task.cleanup_git is True
 
@@ -98,45 +95,3 @@ def test_task_slurm_fields_set() -> None:
     assert task.memory == "32G"
     assert task.time == "4:00:00"
     assert task.nodelist == "gpu0,gpu1"
-
-
-def test_sbatch_overrides_empty() -> None:
-    task = Task(name="test", git_url="ssh://git@example.com/repo.git", path=".")
-    assert task._sbatch_overrides() == ""
-
-
-def test_sbatch_overrides_full() -> None:
-    task = Task(
-        name="gpu-job",
-        git_url="ssh://git@example.com/repo.git",
-        path=".",
-        partition="gpu",
-        cpus="8",
-        gpus="2",
-        memory="32G",
-        time="4:00:00",
-        nodelist="gpu0,gpu1",
-    )
-    overrides = task._sbatch_overrides()
-    assert "--partition=gpu" in overrides
-    assert "--cpus-per-task=8" in overrides
-    assert "--gres=gpu:2" in overrides
-    assert "--mem=32G" in overrides
-    assert "--time=4:00:00" in overrides
-    assert "--nodelist=gpu0,gpu1" in overrides
-
-
-def test_sbatch_overrides_partial() -> None:
-    task = Task(
-        name="quick",
-        git_url="ssh://git@example.com/repo.git",
-        path=".",
-        memory="16G",
-        time="1:00:00",
-    )
-    overrides = task._sbatch_overrides()
-    assert "--mem=16G" in overrides
-    assert "--time=1:00:00" in overrides
-    assert "--partition" not in overrides
-    assert "--cpus-per-task" not in overrides
-    assert "--gres" not in overrides

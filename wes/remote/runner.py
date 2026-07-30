@@ -3,10 +3,9 @@ from __future__ import annotations
 import shlex
 import subprocess
 
-from threading import Thread, Lock
 
 class SshRunner:
-    def __init__(self, ssh_config: str, path_prefix : str = "") -> None:
+    def __init__(self, ssh_config: str, path_prefix: str = "") -> None:
         self.ssh_config = ssh_config
         self.path_prefix = path_prefix
 

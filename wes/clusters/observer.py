@@ -19,7 +19,7 @@ class NodesObserver:
         return infos
 
     def __get_server_nodes_capacity(self) -> list[NodeCapacity]:
-        ok, lines = SshRunner(self.ssh_config).run_command(f"scontrol show nodes -o")
+        ok, lines = SshRunner(self.ssh_config).run_command("scontrol show nodes -o")
         if not ok:
             return []
         capacities: list[NodeCapacity] = []

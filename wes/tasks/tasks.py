@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import re
-import uuid
 
 from .states import State
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x1b]*\x1b\\")
 
+
 def _strip_ansi(text: str) -> str:
     return _ANSI.sub("", text)
+
 
 class Task:
     def __init__(
@@ -61,5 +62,12 @@ class Task:
         return self.status
 
     def __repr__(self) -> str:
-        return f"Task(name={self.name}, git_url={self.git_url}, path={self.path}, ssh_config={self.ssh_config}, job={self.job_script}, pre={self.pre_script}, branch={self.branch}, cleanup_git={self.cleanup_git}, artifacts={self.artifacts}, partition={self.partition}, cpus={self.cpus}, gpus={self.gpus}, memory={self.memory}, time={self.time}, nodelist={self.nodelist})"
-
+        return (
+            f"Task(name={self.name}, git_url={self.git_url}, "
+            f"path={self.path}, ssh_config={self.ssh_config}, "
+            f"job={self.job_script}, pre={self.pre_script}, "
+            f"branch={self.branch}, cleanup_git={self.cleanup_git}, "
+            f"artifacts={self.artifacts}, partition={self.partition}, "
+            f"cpus={self.cpus}, gpus={self.gpus}, memory={self.memory}, "
+            f"time={self.time}, nodelist={self.nodelist})"
+        )
