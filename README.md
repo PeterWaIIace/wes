@@ -1,127 +1,91 @@
-# Git Task Runner
+# WES
 
-A Python utility that reads a `.wes` configuration, clones git repositories, executes commands, and cleans up.
-
-## Features
-
-- Reads task configuration from `.wes` file
-- Clones git repositories using git command
-- Executes arbitrary shell commands in specified paths
-- Automatically removes cloned repositories after execution
-- Error handling and detailed output
+WES runs tasks described in a `.wes` YAML file: it clones a git repo, executes commands on an HPC cluster, and syncs results back.
 
 ## Installation
 
-```bash
-pip install -r requirements.txt
-```
-
-Install development tools:
+Requires Python 3.10+.
 
 ```bash
 pip install -e ".[dev]"
 ```
 
-## Configuration
+## How to run
 
-### Optional: Git Credentials
+### CLI (launch tasks from a config)
 
-For HTTPS repositories that require authentication, create a `.env` file with credentials:
+```bash
+wes launch task.wes
+```
+
+### Web interface
+
+```bash
+wes serve
+```
+
+Opens at `http://127.0.0.1:8000`.
+
+### Sync job status
+
+```bash
+wes sync --ssh hpc
+```
+
+Or use the Makefile targets:
+
+```bash
+make run     # launch task.wes
+make serve   # start web interface
+make test    # run tests
+make check   # lint + format check + tests
+```
+
+### Git credentials (optional)
+
+For HTTPS repos that need auth, copy the env file and add your credentials:
 
 ```bash
 cp .env.example .env
 ```
 
-Then edit `.env` and add your credentials:
+Use a personal access token, not your password.
 
-```
-GIT_USERNAME=your_github_username
-GIT_PASSWORD=your_github_token_or_password
-```
+## Config format
 
-**Note:** Use a personal access token instead of your actual password for security.
-
-## Usage
-
-Run with a `.wes` config file:
-```bash
-wes task.wes
-```
-
-Or via make:
-```bash
-make run
-```
-
-## Formatting and Linting
-
-Check and auto-fix style issues:
-
-```bash
-ruff check . --fix
-```
-
-Format code:
-
-```bash
-ruff format .
-```
-
-## WES Configuration Format
-
-The `.wes` format is YAML-based.
+A `.wes` file is YAML. Each task clones a repo and runs a job:
 
 ```yaml
 sequence:
-  - my_task_name:
-      git_url: https://github.com/user/repo.git
-      path: src
-      command: ls -la
+  - my_task:
+      git_url: ssh://git@host/user/repo.git
+      branch: main
+      ssh: hpc
+      pre: scripts/pre.sh
+      job: scripts/job.sh
+      artifacts:
+        - results
+      cpus: "4"
+      gpus: "1"
+      memory: 16G
 ```
 
 ### Fields
 
-- **task root name**: A unique key for each task (for example `my_task_name`)
-- **git_url**: Full URL to the git repository (with or without `.git` suffix)
-- **path**: Path within the repository where the command should be executed (relative to repo root)
-- **command**: Shell command to execute in that directory
+- **git_url** — git repository to clone
+- **branch** — branch to check out (optional)
+- **ssh** — SSH config name of the cluster to run on
+- **pre** — script run before the job
+- **job** — command or script to execute
+- **artifacts** — folders to sync back after the job
+- **cpus / gpus / memory / nodelist** — requested resources
 
-## Example
+See `task.wes` for a working example.
 
-See `task.wes` for a working example with common use cases.
+## Commands
 
-## Frontend Architecture
-
-The web UI uses vanilla HTML/CSS/JS with Web Components for encapsulation. Each component lives in its own directory with separate files:
-
+```bash
+wes launch <config.wes>   # run tasks once and exit
+wes sync --ssh <name>     # continuously sync job status
+wes serve [--port N]      # web interface
 ```
-web/static/components/
-  base/WesComponent.js         ← base class with template loading + helpers
-  index.js                     ← imports all components
-  component-name/
-    component-name.html        ← markup
-    component-name.css         ← scoped styles (shadow DOM)
-    component-name.js          ← class extends HTMLElement
-```
-
-Components:
-
-- **base** — `WesComponent` base class (template fetch, shadow DOM, event helpers)
-- **time-chips** — time preset buttons (30m, 1h, 2h, 4h, 8h, 24h, 2d, 7d)
-- **resource-slider** — labeled range slider (CPU, GPU, MEM)
-- **chip-select** — filterable chip buttons (partition selector)
-- **node-card** — cluster node card with capacity bars
-- **jobs-table** — SLURM jobs table
-- **task-tile** — dashboard task card (name, status, resources, actions)
-- **cluster-panel** — SSH query + node grid + jobs table (dashboard)
-- **config-panel** — task config form (memory, CPU, GPU, time, git, etc.)
-- **log-viewer** — tabbed log panel (stdout, stderr, pre-run)
-- **artifact-list** — videos, models, images, data files
-- **settings-list** — removable item list
-- **slurm-designer** — full SLURM job designer page
-
-## Requests
-
-- Lightweight `JobScanner.scan_configs()` method that returns raw config dicts
-  without creating `Job` objects (avoids SSH mkdir/scp overhead for read-only
-  discovery)
