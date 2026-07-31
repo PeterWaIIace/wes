@@ -28,7 +28,8 @@ class SshRunner:
             check=False,
         )
         if result.returncode != 0:
-            print(f"[\033[31m ERROR \033[0m] ssh command failed: {result.stderr}")
+            err = result.stderr.strip() or f"exit code {result.returncode} (no stderr)"
+            print(f"[\033[31m ERROR \033[0m] ssh command failed: {err}")
             return False, []
         print(f"[\033[32m OK \033[0m] ssh command succeeded: {cmd}")
         print("--------------")

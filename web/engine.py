@@ -112,7 +112,7 @@ def read_remote_log(ssh: str, path: str) -> str:
 
 def list_remote_files(ssh: str, directory: str) -> list[str]:
     runner = SshRunner(ssh)
-    ok, lines = runner.run_command(f"find {directory} -type f 2>/dev/null")
+    ok, lines = runner.run_command(f"find {directory} -type f")
     return lines if ok else []
 
 
