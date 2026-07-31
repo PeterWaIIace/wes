@@ -271,9 +271,10 @@ def _build_cache_index() -> dict[str, dict]:
     for run_id, data in cache.get_all().items():
         if not isinstance(data, dict):
             continue
-        for jid in data.get("jobs_ids", []):
-            index[str(jid)] = data
-        index[run_id] = data
+        entry = {**data, "run_id": run_id}
+        for jid in entry.get("jobs_ids", []):
+            index[str(jid)] = entry
+        index[run_id] = entry
     return index
 
 
@@ -415,6 +416,23 @@ def get_job_logs(job_id: str) -> LogData:
     )
 
 
+def _job_dir_from_name(job_name: str) -> tuple[str, str]:
+    """Parse a SLURM job name (task_name_namespace) into task_name and namespace."""
+    idx = job_name.rfind("_")
+    if idx > 0:
+        return job_name[:idx], job_name[idx + 1:]
+    return job_name, ""
+
+def _make_job_dir(cached: dict, name: str) -> str:
+    task_name = cached.get("task_name") or ""
+    run_id = cached.get("run_id") or ""
+    if task_name and run_id:
+        return f"{task_name}/{run_id}"
+    if run_id:
+        return f"{name}/{run_id}"
+    task, ns = _job_dir_from_name(name)
+    return f"{task}/{ns}" if ns else task
+
 @router.get("/jobs/{job_id}/remote-logs")
 def get_job_remote_logs(job_id: str) -> dict[str, str]:
     cache_idx = _build_cache_index()
@@ -424,9 +442,7 @@ def get_job_remote_logs(job_id: str) -> dict[str, str]:
         try:
             for j in JobsQuery(ssh).get():
                 if j.job_id == job_id:
-                    name = cached.get("task_name") or j.name
-                    run_id = cached.get("run_id", "")
-                    job_dir = f"{name}/{run_id}" if run_id else name
+                    job_dir = _make_job_dir(cached, j.name)
                     return {
                         "stdout": read_remote_log(ssh, f"{job_dir}/job_output.txt"),
                         "stderr": read_remote_log(ssh, f"{job_dir}/job_error.txt"),
@@ -459,7 +475,7 @@ def get_job_remote_artifacts(job_id: str) -> list[dict]:
         try:
             for j in JobsQuery(ssh).get():
                 if j.job_id == job_id:
-                    directory = cached.get("task_name") or j.name
+                    directory = _make_job_dir(cached, j.name)
                     files = list_remote_files(ssh, directory)
                     return _parse_remote_files(files)
         except Exception:
@@ -511,8 +527,8 @@ def get_job_remote_csv(job_id: str) -> ProgressData:
         try:
             for j in JobsQuery(ssh).get():
                 if j.job_id == job_id:
-                    name = cached.get("task_name") or j.name
-                    csv_files = list_remote_files(ssh, name)
+                    directory = _make_job_dir(cached, j.name)
+                    csv_files = list_remote_files(ssh, directory)
                     csv_paths = [f for f in csv_files if f.endswith(".csv")]
                     if not csv_paths:
                         return ProgressData()
