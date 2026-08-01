@@ -13,4 +13,4 @@
     font-family: inherit;
 }
 .tc-btn:hover { border-color: var(--primary, #004a6c); color: var(--primary, #004a6c); }
-.tc-btn.active { background: var(--primary, #004a6c); color: #fff; border-color: var(--primary, #004a6c); }
+.tc-btn.active { background: var(--primary-solid, var(--primary, #004a6c)); color: #fff; border-color: var(--primary-solid, var(--primary, #004a6c)); }

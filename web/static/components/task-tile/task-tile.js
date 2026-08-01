@@ -14,22 +14,35 @@ class TaskTile extends WesComponent {
 
         const tile = this._shadow.getElementById('tile');
         if (!tile) return;
-        tile.href = '#';
 
         this._shadow.getElementById('name').textContent = d.name;
 
         const dot = this._shadow.getElementById('dot');
-        dot.className = 'dot dot-' + (d.status || 'pending').toLowerCase();
+        dot.className = 'dot dot-' + (d.status || 'idle').toLowerCase();
 
-        const artifacts = this._shadow.getElementById('artifacts');
-        artifacts.textContent = d.artifactCount > 0 ? d.artifactCount + ' files' : '';
-        artifacts.style.display = d.artifactCount > 0 ? '' : 'none';
+        const badge = this._shadow.getElementById('state-badge');
+        if (d.stateLabel) {
+            badge.textContent = d.stateLabel;
+            badge.className = 'tt-badge tt-badge-' + (d.status || 'idle').toLowerCase();
+        } else {
+            badge.textContent = '';
+            badge.className = 'tt-badge';
+        }
 
         this._shadow.getElementById('repo').textContent = d.repo || '';
         this._shadow.getElementById('repo').style.display = d.repo ? '' : 'none';
 
         this._shadow.getElementById('branch').textContent = d.branch || '';
         this._shadow.getElementById('branch').style.display = d.branch ? '' : 'none';
+
+        const runs = this._shadow.getElementById('runs');
+        runs.textContent = d.runs > 1 ? d.runs + ' runs' : (d.runs === 1 ? '1 run' : '');
+        runs.style.display = d.runs ? '' : 'none';
+
+        const jobWrap = this._shadow.querySelector('.tt-job');
+        const jobId = d.latestJobId || '';
+        this._shadow.getElementById('job-id').textContent = jobId;
+        jobWrap.style.display = jobId ? '' : 'none';
 
         const res = this._shadow.getElementById('resources');
         let resHtml = '';
@@ -38,6 +51,11 @@ class TaskTile extends WesComponent {
         if (d.gpus && d.gpus !== '0') resHtml += `<span>${d.gpus} GPU</span>`;
         if (d.time) resHtml += `<span>${d.time}</span>`;
         res.innerHTML = resHtml;
+
+        tile.onclick = e => {
+            e.preventDefault();
+            if (jobId) window.location.href = '/jobs/' + encodeURIComponent(jobId);
+        };
 
         this._shadow.getElementById('launch-btn').onclick = e => {
             e.preventDefault();

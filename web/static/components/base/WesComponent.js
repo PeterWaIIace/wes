@@ -5,6 +5,10 @@ export class WesComponent extends HTMLElement {
         this._ready = false;
     }
 
+    static icons(root) {
+        if (window.lucide) window.lucide.createIcons({ width: 16, height: 16, 'stroke-width': 2, root });
+    }
+
     async loadTemplate(name) {
         const base = `/static/components/${name}`;
         const [html, css] = await Promise.all([
@@ -13,6 +17,7 @@ export class WesComponent extends HTMLElement {
         ]);
         this._shadow.innerHTML = `<style>${css}</style>${html}`;
         this._ready = true;
+        WesComponent.icons(this._shadow);
     }
 
     $(sel) { return this._shadow.querySelector(sel); }

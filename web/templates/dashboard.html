@@ -4,45 +4,52 @@
 {% block content %}
 <h1>Dashboard</h1>
 
-<cluster-panel></cluster-panel>
+<div class="dash-grid">
+    <cluster-panel></cluster-panel>
 
-<!-- Tasks Panel -->
-<div class="panel">
-    <div class="panel-header">
-        <h2>Tasks</h2>
-        <div style="display:flex;gap:0.5rem;align-items:center">
-            <span id="tasks-status" class="cluster-status-text"></span>
-            <button class="btn btn-sm" id="reload-btn">Reload</button>
+    <div class="dash-col">
+        <!-- User Jobs Panel -->
+        <div class="panel">
+            <div class="panel-header">
+                <h2>User's Jobs</h2>
+                <span id="jobs-status" class="cluster-status-text"></span>
+            </div>
+            <div id="jobs-error"></div>
+            <div class="jobs-toolbar">
+                <input id="jobs-search" class="input" type="search" placeholder="Search jobs..." oninput="renderJobList()">
+                <select id="jobs-filter-state" class="input" onchange="renderJobList()">
+                    <option value="">all states</option>
+                    <option value="running">running</option>
+                    <option value="pending">pending</option>
+                    <option value="completed">completed</option>
+                    <option value="failed">failed</option>
+                    <option value="cancelled">cancelled</option>
+                </select>
+            </div>
+            <div id="jobs-list"></div>
+            <div id="jobs-empty" class="empty-state" style="display:none">
+                No running jobs
+            </div>
         </div>
-    </div>
-    <div id="tasks-error"></div>
-    <div id="task-tiles" class="task-tiles"></div>
-    <div id="task-empty" class="empty-state" style="display:none">
-        No .wes config files found in project root
-    </div>
-</div>
 
-<!-- Jobs Panel -->
-<div class="panel">
-    <div class="panel-header">
-        <h2>Jobs</h2>
-        <span id="jobs-status" class="cluster-status-text"></span>
-    </div>
-    <div id="jobs-error"></div>
-    <div class="jobs-toolbar">
-        <input id="jobs-search" class="input" type="search" placeholder="Search jobs..." oninput="renderJobList()">
-        <select id="jobs-filter-state" class="input" onchange="renderJobList()">
-            <option value="">all states</option>
-            <option value="running">running</option>
-            <option value="pending">pending</option>
-            <option value="completed">completed</option>
-            <option value="failed">failed</option>
-            <option value="cancelled">cancelled</option>
-        </select>
-    </div>
-    <div id="jobs-list"></div>
-    <div id="jobs-empty" class="empty-state" style="display:none">
-        No running jobs
+        <!-- Tasks Panel -->
+        <div class="panel" id="tasks-panel">
+            <div class="panel-header">
+                <h2>Tasks</h2>
+                <span id="tasks-status" class="cluster-status-text"></span>
+                <div class="panel-actions">
+                    <button class="btn btn-sm btn-primary" id="tasks-new-btn"><i data-lucide="plus"></i> New Task</button>
+                    <button class="tt-collapse" id="tasks-collapse" title="Collapse"><i data-lucide="chevron-up"></i></button>
+                </div>
+            </div>
+            <div id="tasks-body">
+                <div id="tasks-error"></div>
+                <task-table id="task-table"></task-table>
+                <div id="task-empty" class="empty-state" style="display:none">
+                    No .wes config files found in project root
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -54,7 +61,7 @@
         <div class="modal-header">
             <span class="modal-title">Launch</span>
             <span id="launch-task-name" class="modal-task-name"></span>
-            <button class="btn-ghost modal-close" id="launch-close-btn">&#x2715;</button>
+            <button class="btn-ghost modal-close" id="launch-close-btn"><i data-lucide="x"></i></button>
         </div>
         <div class="modal-body">
             <div class="modal-task-info">
@@ -70,6 +77,10 @@
                     <span class="modal-info-label">Job</span>
                     <span class="modal-info-value" id="launch-job"></span>
                 </div>
+            </div>
+            <div class="modal-resource-row">
+                <label>Task</label>
+                <select id="launch-task-select" class="modal-select"></select>
             </div>
             <div class="modal-section">
                 <div class="modal-section-title">Resources</div>
@@ -99,7 +110,7 @@
         </div>
         <div class="modal-actions">
             <button class="btn" id="launch-cancel-btn">Cancel</button>
-            <button class="btn btn-primary" id="launch-go-btn">&#9654; Launch</button>
+            <button class="btn btn-primary" id="launch-go-btn"><i data-lucide="rocket"></i> Launch</button>
         </div>
     </div>
 </div>
@@ -116,17 +127,17 @@
                 <div class="launcher-step-dot"></div>
                 <div class="launcher-step-label">Submitting</div>
             </div>
-            <div class="launcher-arrow">↓</div>
+            <div class="launcher-arrow"><i data-lucide="chevron-down"></i></div>
             <div class="launcher-step" data-step="pending">
                 <div class="launcher-step-dot"></div>
                 <div class="launcher-step-label">Pending</div>
             </div>
-            <div class="launcher-arrow">↓</div>
+            <div class="launcher-arrow"><i data-lucide="chevron-down"></i></div>
             <div class="launcher-step" data-step="running">
                 <div class="launcher-step-dot"></div>
                 <div class="launcher-step-label">Running</div>
             </div>
-            <div class="launcher-arrow">↓</div>
+            <div class="launcher-arrow"><i data-lucide="chevron-down"></i></div>
             <div class="launcher-step" data-step="completed">
                 <div class="launcher-step-dot"></div>
                 <div class="launcher-step-label">Completed</div>
@@ -145,6 +156,8 @@
 
 {% block scripts %}
 <script type="module">
+import { pollEvery } from '/static/poll.js';
+
 let taskConfigs = [];
 let cachedJobs = {};
 let editingIndex = -1;
@@ -241,24 +254,52 @@ const launchGpu = document.getElementById('launch-gpu');
 const launchTime = document.getElementById('launch-time');
 const launchNodelist = document.getElementById('launch-nodelist');
 
-function openLaunchModal(taskData) {
-    launchTaskData = taskData;
-    document.getElementById('launch-task-name').textContent = taskData.name;
-    document.getElementById('launch-repo').textContent = taskData.git_url.split('/').pop().replace('.git', '');
-    document.getElementById('launch-branch').textContent = taskData.branch || '-';
-    document.getElementById('launch-job').textContent = taskData.job || '-';
+const launchTaskSelect = document.getElementById('launch-task-select');
 
-    if (launchMem) launchMem.value = parseInt(taskData.memory) || 4;
-    if (launchCpu) launchCpu.value = parseInt(taskData.cpus) || 1;
-    if (launchGpu) launchGpu.value = parseInt(taskData.gpus) || 0;
-    if (launchTime && taskData.time) {
-        const parts = taskData.time.split(':');
+function fillLaunchTaskSelect() {
+    launchTaskSelect.innerHTML = '';
+    taskConfigs.forEach((t, i) => {
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.textContent = t.name + (t.job ? ' — ' + t.job : '');
+        launchTaskSelect.appendChild(opt);
+    });
+}
+
+function populateLaunchFromTask(task) {
+    if (!task) return;
+    launchTaskData = task;
+    document.getElementById('launch-task-name').textContent = task.name;
+    document.getElementById('launch-repo').textContent = task.git_url ? task.git_url.split('/').pop().replace('.git', '') : '';
+    document.getElementById('launch-branch').textContent = task.branch || '-';
+    document.getElementById('launch-job').textContent = task.job || '-';
+
+    if (launchMem) launchMem.value = parseInt(task.memory) || 4;
+    if (launchCpu) launchCpu.value = parseInt(task.cpus) || 1;
+    if (launchGpu) launchGpu.value = parseInt(task.gpus) || 0;
+    if (launchTime && task.time) {
+        const parts = task.time.split(':');
         launchTime.value = parseInt(parts[0]) + parseInt(parts[1] || 0) / 60;
     }
 
-    loadLaunchNodes(taskData.ssh);
+    loadLaunchNodes(task.ssh);
+}
+
+function openLaunchModal(taskData) {
+    fillLaunchTaskSelect();
+    if (taskData) {
+        const idx = taskConfigs.findIndex(t => t.name === taskData.name);
+        launchTaskSelect.value = idx >= 0 ? idx : 0;
+    } else {
+        launchTaskSelect.value = 0;
+    }
+    populateLaunchFromTask(taskConfigs[launchTaskSelect.value]);
     launchModal.classList.remove('hidden');
 }
+
+launchTaskSelect.addEventListener('change', () => {
+    populateLaunchFromTask(taskConfigs[parseInt(launchTaskSelect.value, 10)]);
+});
 
 function closeLaunchModal() {
     launchModal.classList.add('hidden');
@@ -323,7 +364,7 @@ document.getElementById('launch-go-btn').addEventListener('click', async () => {
             } else {
                 setLauncherStep('pending');
                 loadDashboard();
-                pollJobStatus(jobId, 15);
+                pollJobStatus(jobId, 5);
             }
         } else {
             markLauncherStep('launching', 'failed');
@@ -339,7 +380,7 @@ document.getElementById('launch-go-btn').addEventListener('click', async () => {
 
 async function pollJobStatus(jobId, attempts) {
     for (let i = 0; i < attempts; i++) {
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, 10000));
         try {
             const resp = await fetch('/api/jobs/' + encodeURIComponent(jobId));
             if (!resp.ok) continue;
@@ -397,11 +438,12 @@ async function loadDashboard() {
 
         if (!tasks.length) {
             taskEmpty.style.display = '';
-            document.getElementById('task-tiles').innerHTML = '';
+            document.getElementById('task-table').style.display = 'none';
             tasksStatus.textContent = '';
         } else {
             taskEmpty.style.display = 'none';
-            renderTaskTiles();
+            document.getElementById('task-table').style.display = '';
+            renderTasks();
             tasksStatus.textContent = tasks.length + ' task' + (tasks.length > 1 ? 's' : '');
         }
 
@@ -421,40 +463,33 @@ async function loadDashboard() {
     }
 }
 
-function renderTaskTiles() {
-    const container = document.getElementById('task-tiles');
-    container.innerHTML = '';
-
-    taskConfigs.forEach((t, i) => {
-        const tile = document.createElement('task-tile');
-        tile.data = {
-            name: t.name,
-            repo: t.git_url ? t.git_url.split('/').pop().replace('.git', '') : '',
-            branch: t.branch || '',
-            status: 'idle',
-            artifactCount: 0,
-            memory: t.memory || '',
-            cpus: t.cpus || '1',
-            gpus: t.gpus || '0',
-            time: t.time || '',
-            index: i,
-            git_url: t.git_url,
-            ssh: t.ssh,
-            job: t.job,
-            run_id: t.run_id || '',
-        };
-        tile.addEventListener('task-launch', e => openLaunchModal(e.detail.task));
-        tile.addEventListener('task-edit', e => openConfig(e.detail.index));
-        tile.addEventListener('task-delete', e => deleteTask(e.detail.name, e.detail.run_id));
-        container.appendChild(tile);
-    });
-
-    const addTile = document.createElement('div');
-    addTile.className = 'task-tile task-tile-add';
-    addTile.onclick = () => openConfig(-1);
-    addTile.innerHTML = '<div class="task-tile-add-icon">+</div><div class="task-tile-add-label">New Task</div>';
-    container.appendChild(addTile);
+function renderTasks() {
+    const enriched = taskConfigs.map((t, i) => ({
+        ...t,
+        index: i,
+        name: t.name,
+        repo: t.git_url ? t.git_url.split('/').pop().replace('.git', '') : '',
+        branch: t.branch || '',
+        job: t.job || '',
+    }));
+    document.getElementById('task-table').data = enriched;
 }
+
+document.getElementById('tasks-new-btn').addEventListener('click', () => openConfig(-1));
+
+const tasksPanel = document.getElementById('tasks-panel');
+const tasksBody = document.getElementById('tasks-body');
+document.getElementById('tasks-collapse').addEventListener('click', () => {
+    const collapsed = tasksPanel.classList.toggle('collapsed');
+    tasksBody.style.display = collapsed ? 'none' : '';
+    const btn = document.getElementById('tasks-collapse');
+    btn.title = collapsed ? 'Expand' : 'Collapse';
+});
+
+const taskTable = document.getElementById('task-table');
+taskTable.addEventListener('task-launch', e => openLaunchModal(e.detail.task));
+taskTable.addEventListener('task-edit', e => openConfig(e.detail.index));
+taskTable.addEventListener('task-delete', e => deleteTask(e.detail.name, e.detail.run_id));
 
 let jobsSortKey = 'priority';
 let jobsSortAsc = false;
@@ -530,7 +565,7 @@ function renderJobList() {
         th.style.userSelect = 'none';
         if (col.key === jobsSortKey) {
             th.classList.add('sorted');
-            th.textContent += jobsSortAsc ? ' ▲' : ' ▼';
+            th.innerHTML += ' <i data-lucide="' + (jobsSortAsc ? 'chevron-up' : 'chevron-down') + '"></i>';
         }
         th.addEventListener('click', () => {
             if (jobsSortKey === col.key) jobsSortAsc = !jobsSortAsc;
@@ -569,6 +604,7 @@ function renderJobList() {
     }
     table.appendChild(tbody);
     container.appendChild(table);
+    if (window.lucide) lucide.createIcons({ width: 16, height: 16, 'stroke-width': 2 });
 }
 
 function openConfig(index) {
@@ -642,9 +678,7 @@ configPanel.addEventListener('config-error', e => {
 
 // ── Init ──
 
-document.getElementById('reload-btn').addEventListener('click', loadDashboard);
-
-let dashboardTimer = setInterval(loadDashboard, 10000);
+pollEvery(loadDashboard, 10000);
 
 // Pass cluster node data to launch modal when available
 const clusterPanel = document.querySelector('cluster-panel');
@@ -655,7 +689,5 @@ if (clusterPanel) {
         }
     });
 }
-
-loadDashboard();
 </script>
 {% endblock %}

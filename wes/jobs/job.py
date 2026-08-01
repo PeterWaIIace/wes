@@ -112,11 +112,11 @@ class ClientSsh(ClientItem):
         self.ssh.create_dir(job_path)
         super().__init__(job_path)
 
-    def cmd(self, cmd):
+    def cmd(self, cmd, retries: int = 0):
         if self.job_path:
             cmd = f"cd {self.job_path} && {cmd}"
 
-        ok, result = self.ssh.run_command(cmd)
+        ok, result = self.ssh.run_command(cmd, retries=retries)
         return ok, result
 
 
@@ -227,4 +227,8 @@ class Job:
         sbatch_cmd = f"sbatch --parsable --job-name={self.job_name}"
         sbatch_cmd += f" ./{self.script.r_name}"
 
-        ok, result = self.job_ssh_client.cmd(sbatch_cmd)
+        ok, result = self.job_ssh_client.cmd(sbatch_cmd, retries=3)
+        if not ok:
+            print(f"Job submission failed: {result}")
+            return State.FAILED
+        return State.PENDING

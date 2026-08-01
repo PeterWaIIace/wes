@@ -8,11 +8,23 @@ WES clones a git repo from a `.wes` YAML file, runs commands on an HPC cluster, 
 pip install -e ".[dev]"
 ```
 
+or
+```bash
+uv sync
+```
+
 ## Run
+
+Run web interface: 
+
+```bash
+wes serve               # web interface at http://127.0.0.1:8000
+```
+
+Command line option:
 
 ```bash
 wes launch task.wes     # run tasks from a config
-wes serve               # web interface at http://127.0.0.1:8000
 wes sync --ssh hpc      # continuously sync job status
 ```
 

@@ -1,22 +1,20 @@
 :host { display: block; }
 .tt-tile {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
     background: var(--bg, #fff);
     border: 1px solid var(--border, #e2e4e8);
     border-radius: var(--radius, 8px);
-    padding: 0.7rem 0.85rem;
+    padding: 0.55rem 0.85rem;
     cursor: pointer;
     transition: border-color 0.12s, box-shadow 0.12s;
     text-decoration: none;
     color: inherit;
-    display: block;
 }
-.tt-tile:hover { border-color: var(--primary, #004a6c); box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
-.tt-top {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    margin-bottom: 0.35rem;
-}
+.tt-tile:hover { border-color: var(--primary, #004a6c); box-shadow: var(--shadow-sm, 0 1px 2px rgba(0,0,0,0.04)); }
+.tt-main { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.tt-title { display: flex; align-items: center; gap: 0.5rem; }
 .tt-name {
     font-weight: 600;
     font-size: 0.9rem;
@@ -24,32 +22,51 @@
     overflow: hidden;
     text-overflow: ellipsis;
 }
-.tt-meta { display: flex; gap: 0.5rem; margin-bottom: 0.35rem; }
-.tt-repo, .tt-branch { font-size: 0.72rem; color: var(--text-secondary, #5f6368); }
+.tt-sub { display: flex; align-items: center; gap: 0.5rem; font-size: 0.72rem; color: var(--text-secondary, #5f6368); }
 .tt-repo { font-family: var(--mono, monospace); }
+.tt-branch::before { content: '@'; margin-right: 0.15rem; }
+.tt-runs { color: var(--text-muted, #9aa0a6); }
+.tt-badge {
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 0.12rem 0.5rem;
+    border-radius: 99px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.tt-badge-running { background: rgba(74,144,217,0.14); color: var(--blue, #4a90d9); }
+.tt-badge-pending { background: rgba(217,119,6,0.14); color: var(--yellow, #d97706); }
+.tt-badge-completed { background: rgba(13,148,136,0.14); color: var(--green, #0d9488); }
+.tt-badge-failed { background: rgba(220,38,38,0.14); color: var(--red, #dc2626); }
+.tt-badge-cancelled { background: rgba(220,38,38,0.14); color: var(--red, #dc2626); }
+.tt-badge-idle { background: rgba(120,120,120,0.14); color: var(--text-muted, #9aa0a6); }
+.tt-job { display: flex; flex-direction: column; gap: 0.1rem; margin-left: auto; text-align: right; flex-shrink: 0; }
+.tt-job-label {
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted, #9aa0a6);
+}
+.tt-job-id { font-family: var(--mono, monospace); font-size: 0.8rem; color: var(--primary, #004a6c); }
 .tt-resources {
     display: flex;
     gap: 0.5rem;
     flex-wrap: wrap;
+    justify-content: flex-end;
     font-size: 0.68rem;
     color: var(--text-muted, #9aa0a6);
     font-family: var(--mono, monospace);
+    flex-shrink: 0;
 }
 .tt-actions {
     display: flex;
     align-items: center;
     gap: 0.35rem;
-    margin-left: auto;
-}
-.tt-artifacts {
-    font-size: 0.65rem;
-    font-family: var(--mono, monospace);
-    color: var(--text-muted, #9aa0a6);
-    background: var(--bg-surface, #f7f8fa);
-    padding: 0.1rem 0.4rem;
-    border-radius: 99px;
+    flex-shrink: 0;
 }
 .tt-edit {
+    display: inline-flex;
+    align-items: center;
     font-size: 0.85rem;
     padding: 0;
     opacity: 0;
@@ -67,11 +84,12 @@
     border-radius: 50%;
     flex-shrink: 0;
 }
+.dot-idle { background: var(--border, #e2e4e8); }
 .dot-pending { background: var(--yellow, #d97706); }
-.dot-running { background: var(--green, #0d9488); animation: pulse-dot 2s infinite; }
+.dot-running { background: var(--blue, #4a90d9); animation: pulse-dot 2s infinite; }
 .dot-completed { background: var(--green, #0d9488); }
 .dot-failed { background: var(--red, #dc2626); }
-.dot-cancelled { background: var(--text-muted, #9aa0a6); }
+.dot-cancelled { background: var(--red, #dc2626); }
 @keyframes pulse-dot {
     0%, 100% { opacity: 1; transform: scale(1); }
     50% { opacity: 0.5; transform: scale(0.85); }

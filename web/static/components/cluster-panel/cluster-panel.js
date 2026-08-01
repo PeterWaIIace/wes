@@ -9,6 +9,7 @@ class ClusterPanel extends WesComponent {
         this.selectedNode = null;
         this._timer = null;
         this._intervalSec = 10;
+        this._mock = false;
     }
 
     async connectedCallback() {
@@ -17,13 +18,22 @@ class ClusterPanel extends WesComponent {
         const savedSsh = localStorage.getItem('wes_ssh');
         if (savedSsh) this._shadow.getElementById('ssh-input').value = savedSsh;
 
-        this._shadow.getElementById('query-btn').addEventListener('click', () => this.query());
         this._shadow.getElementById('ssh-input').addEventListener('keydown', e => { if (e.key === 'Enter') this.query(); });
         this._shadow.getElementById('show-all-btn').addEventListener('click', () => this.selectNode(null));
 
+        this._onVisible = () => {
+            if (!document.hidden) {
+                const ssh = this._shadow.getElementById('ssh-input').value.trim();
+                if (ssh) this.query(true);
+            }
+        };
+        document.addEventListener('visibilitychange', this._onVisible);
+
         await this._loadSettings();
         this._restoreCache();
-        if (savedSsh) {
+        if (this._mock) {
+            this._loadDemo(true);
+        } else if (savedSsh) {
             this.query(true);
         }
         this._startAutoRefresh();
@@ -31,13 +41,15 @@ class ClusterPanel extends WesComponent {
 
     disconnectedCallback() {
         if (this._timer) clearInterval(this._timer);
+        if (this._onVisible) document.removeEventListener('visibilitychange', this._onVisible);
     }
 
     async _loadSettings() {
         try {
             const resp = await fetch('/api/settings');
             const data = await resp.json();
-            if (data.query_interval) this._intervalSec = data.query_interval;
+            this._mock = !!data.mock;
+            if (data.query_interval) this._intervalSec = Math.max(10, data.query_interval);
         } catch (_) {}
     }
 
@@ -45,12 +57,18 @@ class ClusterPanel extends WesComponent {
         if (this._timer) clearInterval(this._timer);
         this._timer = setInterval(() => {
             const ssh = this._shadow.getElementById('ssh-input').value.trim();
-            if (ssh) this.query(true);
+            if (ssh && !document.hidden) this.query(true);
         }, this._intervalSec * 1000);
     }
 
     refreshInterval() {
         this._loadSettings().then(() => this._startAutoRefresh());
+    }
+
+    _loadDemo(silent) {
+        this._shadow.getElementById('ssh-input').value = 'mock';
+        localStorage.setItem('wes_ssh', 'mock');
+        this.query(silent);
     }
 
     _restoreCache() {
@@ -69,10 +87,9 @@ class ClusterPanel extends WesComponent {
     async query(silent) {
         const ssh = this._shadow.getElementById('ssh-input').value.trim();
         if (!ssh) return;
-        const btn = this._shadow.getElementById('query-btn');
         const status = this._shadow.getElementById('cluster-status');
         const errDiv = this._shadow.getElementById('cluster-error');
-        if (!silent) { btn.disabled = true; status.textContent = 'Querying...'; }
+        if (!silent) { status.textContent = 'Querying...'; }
         errDiv.innerHTML = '';
 
         try {
@@ -93,7 +110,6 @@ class ClusterPanel extends WesComponent {
         } catch (err) {
             if (!silent) errDiv.innerHTML = `<div class="cp-error">${err.message}</div>`;
         } finally {
-            btn.disabled = false;
             status.textContent = this.allNodes.length + ' nodes, ' + this.allJobs.length + ' jobs';
         }
     }

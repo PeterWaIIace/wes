@@ -5,12 +5,15 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from web.api import router as api_router
 from web.cache import JobCache
 from web.engine import check_jobs_alive
+from web.routes import router as pages_router
 
 log = logging.getLogger("wes.web")
 
@@ -63,9 +66,6 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    from web.api import router as api_router
-    from web.routes import router as pages_router
-
     app = FastAPI(title="wes", lifespan=lifespan)
     app.include_router(api_router)
     app.include_router(pages_router)
@@ -74,6 +74,4 @@ def create_app() -> FastAPI:
 
 
 def main() -> None:
-    import uvicorn
-
     uvicorn.run("web.app:create_app", factory=True, host="127.0.0.1", port=8000)

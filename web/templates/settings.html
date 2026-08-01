@@ -8,7 +8,7 @@
 <div class="panel">
     <div class="panel-header">
         <h2>SSH Hosts</h2>
-        <button class="btn btn-sm btn-primary" id="add-ssh-btn">+ Add</button>
+        <button class="btn btn-sm btn-primary" id="add-ssh-btn"><i data-lucide="plus"></i> Add</button>
     </div>
     <div class="panel-body">
         <settings-list id="ssh-list">No SSH hosts configured</settings-list>
@@ -23,7 +23,7 @@
     <div class="panel-body">
         <div style="display:flex;align-items:center;gap:0.75rem">
             <label style="font-size:0.82rem;color:var(--text-secondary)">Refresh every</label>
-            <input type="number" id="query-interval" min="2" max="300" value="10" class="input" style="width:70px">
+            <input type="number" id="query-interval" min="10" max="300" value="10" class="input" style="width:70px">
             <label style="font-size:0.82rem;color:var(--text-secondary)">seconds</label>
             <button class="btn btn-sm btn-primary" id="save-interval-btn">Save</button>
         </div>
@@ -91,12 +91,13 @@ function renderHistory() {
         vals.forEach((v, i) => {
             html += '<div class="settings-item">';
             html += '<span class="mono">' + v + '</span>';
-            html += '<button class="btn-ghost" data-key="' + key + '" data-index="' + i + '" title="Remove">&#x2715;</button>';
+            html += '<button class="btn-ghost" data-key="' + key + '" data-index="' + i + '" title="Remove"><i data-lucide="x"></i></button>';
             html += '</div>';
         });
         html += '</div></div>';
     });
     container.innerHTML = html;
+    if (window.lucide) lucide.createIcons({ width: 16, height: 16, 'stroke-width': 2 });
     container.querySelectorAll('.btn-ghost').forEach(btn => {
         btn.addEventListener('click', () => {
             const key = btn.dataset.key;
@@ -145,7 +146,7 @@ document.getElementById('ssh-list').addEventListener('settings-remove', e => {
 
 document.getElementById('save-interval-btn').addEventListener('click', () => {
     const val = parseInt(document.getElementById('query-interval').value);
-    if (val >= 2 && val <= 300) {
+    if (val >= 10 && val <= 300) {
         settings.query_interval = val;
         saveSettings();
     }

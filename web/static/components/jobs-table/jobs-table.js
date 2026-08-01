@@ -22,9 +22,6 @@ class JobsTable extends WesComponent {
 
     async connectedCallback() {
         await this.loadTemplate('jobs-table');
-        this._headerRow = this._shadow.getElementById('header-row');
-        this._tbody = this._shadow.getElementById('tbody');
-        this._renderHeaders();
         this.render(this._jobs || []);
     }
 
@@ -34,10 +31,11 @@ class JobsTable extends WesComponent {
         this._headerRow.innerHTML = COLUMNS.map(col => {
             let label = col.label;
             if (col.key === this._sortKey) {
-                label += this._sortAsc ? ' ▲' : ' ▼';
+                label += ' <i data-lucide="' + (this._sortAsc ? 'chevron-up' : 'chevron-down') + '"></i>';
             }
             return `<th data-key="${col.key}" class="${col.key === this._sortKey ? 'sorted' : ''}">${label}</th>`;
         }).join('');
+        WesComponent.icons(this._shadow);
         this._headerRow.addEventListener('click', e => {
             const th = e.target.closest('th');
             if (!th) return;
@@ -52,8 +50,8 @@ class JobsTable extends WesComponent {
         if (!this._headerRow) {
             this._headerRow = this._shadow.getElementById('header-row');
             this._tbody = this._shadow.getElementById('tbody');
-            if (this._headerRow) this._renderHeaders();
         }
+        if (this._headerRow) this._renderHeaders();
         const tbody = this._tbody;
         if (!tbody) return;
         if (!jobs || !jobs.length) {

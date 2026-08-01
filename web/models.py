@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class TaskInfo(BaseModel):
@@ -96,3 +96,9 @@ class SettingsData(BaseModel):
     ssh_hosts: list[str] = []
     form_history: dict[str, list[str]] = {}
     query_interval: int = 10
+    mock: bool = False
+
+    @field_validator("query_interval")
+    @classmethod
+    def clamp_query_interval(cls, v: int) -> int:
+        return max(10, v)

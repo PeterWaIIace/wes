@@ -11,7 +11,7 @@
 .nc-card:hover { border-color: var(--primary, #004a6c); box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
 .nc-card.selected {
     border-color: var(--primary, #004a6c);
-    box-shadow: 0 0 0 2px rgba(0,74,108,0.18);
+    box-shadow: 0 0 0 2px var(--ring, rgba(0,74,108,0.18));
 }
 .nc-header {
     display: flex;
@@ -73,3 +73,8 @@
 :host(.ns-alloc) .nc-card { border-left: 3px solid var(--red, #dc2626); }
 :host(.ns-mix) .nc-card { border-left: 3px solid var(--yellow, #d97706); }
 :host(.ns-other) .nc-card { border-left: 3px solid var(--border, #e2e4e8); }
+
+@media (max-width: 760px) {
+    .nc-card { padding: 0.5rem 0.6rem; }
+    .nc-cap-text { display: none; }
+}
