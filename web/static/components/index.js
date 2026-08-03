@@ -5,6 +5,7 @@ import './chip-select/chip-select.js';
 import './node-card/node-card.js';
 import './jobs-table/jobs-table.js';
 import './task-tile/task-tile.js';
+import './task-table/task-table.js';
 import './cluster-panel/cluster-panel.js';
 import './config-panel/config-panel.js';
 import './log-viewer/log-viewer.js';

@@ -4,8 +4,30 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}wes{% endblock %}</title>
+    <script>
+        (function () {
+            var stored;
+            try { stored = localStorage.getItem('wes-theme'); } catch (_) {}
+            var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            var theme = stored === 'light' || stored === 'dark' ? stored : (prefersDark ? 'dark' : 'light');
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+    </script>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@300;400;500;600;700&display=swap">
     <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.577.0/dist/umd/lucide.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            if (window.lucide) lucide.createIcons({ width: 16, height: 16, 'stroke-width': 2 });
+            const toggle = document.getElementById('theme-toggle');
+            if (toggle) toggle.addEventListener('click', () => {
+                const html = document.documentElement;
+                const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+                html.setAttribute('data-theme', next);
+                try { localStorage.setItem('wes-theme', next); } catch (_) {}
+            });
+        });
+    </script>
     {% block head %}{% endblock %}
 </head>
 <body>
@@ -16,27 +38,14 @@
             <a href="/settings" class="{% if active_page == 'settings' %}active{% endif %}">Settings</a>
         </div>
         <div class="nav-spacer"></div>
+        <div class="nav-right">
+            <button class="theme-toggle" id="theme-toggle" title="Toggle theme" aria-label="Toggle theme">
+                <i data-lucide="moon" class="theme-icon-moon"></i>
+                <i data-lucide="sun" class="theme-icon-sun"></i>
+            </button>
+        </div>
     </nav>
     <div class="app-layout">
-        <aside class="sidebar">
-            <div class="sidebar-header">
-                <h3>Tasks</h3>
-                <a href="/" class="btn btn-sm btn-primary">+ New</a>
-            </div>
-            <div class="sidebar-list">
-                {% if tasks is defined and tasks %}
-                    {% for task in tasks %}
-                    <a href="/tasks/{{ task.name }}" class="sidebar-item {% if active_task is defined and active_task == task.name %}active{% endif %}">
-                        <span class="dot dot-{{ task.status|lower }}"></span>
-                        <span class="item-name">{{ task.name }}</span>
-                        <span class="badge badge-{{ task.status|lower }}">{{ task.status[:3] }}</span>
-                    </a>
-                    {% endfor %}
-                {% else %}
-                    <div class="sidebar-empty">No tasks yet</div>
-                {% endif %}
-            </div>
-        </aside>
         <div class="main-content">
             {% block content %}{% endblock %}
         </div>

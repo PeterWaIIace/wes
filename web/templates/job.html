@@ -26,7 +26,20 @@
 
 {% block scripts %}
 <script type="module">
+import { pollEvery } from '/static/poll.js';
+
 const jobId = {{ job_id|tojson|safe }};
+
+let chartInstance = null;
+let chartJsLoaded = false;
+
+function ensureChartJs(cb) {
+    if (chartJsLoaded) { cb(); return; }
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+    script.onload = () => { chartJsLoaded = true; cb(); };
+    document.head.appendChild(script);
+}
 
 async function loadJob() {
     try {
@@ -95,7 +108,6 @@ async function loadArtifacts() {
         artifactList.data = items.map(a => ({
             ...a,
             url: '/api/jobs/' + encodeURIComponent(jobId) + '/remote-artifacts/' + encodeURIComponent(a.path),
-            sizeLabel: '',
         }));
     } catch (_) {}
 }
@@ -108,6 +120,15 @@ async function loadProgress() {
         if (!data.columns || !data.columns.length) return;
 
         document.getElementById('progress-panel').style.display = '';
+
+        const cs = getComputedStyle(document.documentElement);
+        const cv = (name, fallback) => cs.getPropertyValue(name).trim() || fallback;
+        const chartGrid = cv('--border-subtle', '#ececee');
+        const chartTick = cv('--text-muted', '#9aa0a6');
+        const chartLegend = cv('--text-secondary', '#5f6368');
+        const chartGreen = cv('--green', '#0d9488');
+        const chartBlue = cv('--blue', '#4a90d9');
+        const chartYellow = cv('--yellow', '#d97706');
 
         const columns = data.columns;
         const rows = data.rows;
@@ -127,16 +148,20 @@ async function loadProgress() {
         });
 
         const datasets = [];
-        if (rewardData.some(v => v !== null)) datasets.push({ label: 'Reward', data: rewardData, borderColor: '#0d9488', tension: 0.3, yAxisID: 'y' });
-        if (actorData.some(v => v !== null)) datasets.push({ label: 'Actor Loss', data: actorData, borderColor: '#4a90d9', tension: 0.3, yAxisID: 'y1' });
-        if (criticData.some(v => v !== null)) datasets.push({ label: 'Critic Loss', data: criticData, borderColor: '#d97706', tension: 0.3, yAxisID: 'y1' });
+        if (rewardData.some(v => v !== null)) datasets.push({ label: 'Reward', data: rewardData, borderColor: chartGreen, tension: 0.3, yAxisID: 'y' });
+        if (actorData.some(v => v !== null)) datasets.push({ label: 'Actor Loss', data: actorData, borderColor: chartBlue, tension: 0.3, yAxisID: 'y1' });
+        if (criticData.some(v => v !== null)) datasets.push({ label: 'Critic Loss', data: criticData, borderColor: chartYellow, tension: 0.3, yAxisID: 'y1' });
 
         if (datasets.length === 0) return;
 
-        const script = document.createElement('script');
-        script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
-        script.onload = function() {
-            new Chart(document.getElementById('progress-chart').getContext('2d'), {
+        ensureChartJs(() => {
+            const ctx = document.getElementById('progress-chart').getContext('2d');
+            if (chartInstance) {
+                chartInstance.data = { labels, datasets };
+                chartInstance.update();
+                return;
+            }
+            chartInstance = new Chart(ctx, {
                 type: 'line',
                 data: { labels, datasets },
                 options: {
@@ -144,18 +169,17 @@ async function loadProgress() {
                     maintainAspectRatio: false,
                     interaction: { mode: 'index', intersect: false },
                     scales: {
-                        x: { title: { display: true, text: 'Timesteps', color: '#9aa0a6' }, ticks: { color: '#9aa0a6' }, grid: { color: '#ececee' } },
-                        y: { position: 'left', title: { display: true, text: 'Reward', color: '#9aa0a6' }, ticks: { color: '#9aa0a6' }, grid: { color: '#ececee' } },
-                        y1: { position: 'right', title: { display: true, text: 'Loss', color: '#9aa0a6' }, ticks: { color: '#9aa0a6' }, grid: { drawOnChartArea: false } }
+                        x: { title: { display: true, text: 'Timesteps', color: chartTick }, ticks: { color: chartTick }, grid: { color: chartGrid } },
+                        y: { position: 'left', title: { display: true, text: 'Reward', color: chartTick }, ticks: { color: chartTick }, grid: { color: chartGrid } },
+                        y1: { position: 'right', title: { display: true, text: 'Loss', color: chartTick }, ticks: { color: chartTick }, grid: { drawOnChartArea: false } }
                     },
-                    plugins: { legend: { labels: { color: '#5f6368', usePointStyle: true, pointStyle: 'circle' } } }
+                    plugins: { legend: { labels: { color: chartLegend, usePointStyle: true, pointStyle: 'circle' } } }
                 }
             });
-        };
-        document.head.appendChild(script);
+        });
     } catch (_) {}
 }
 
-loadJob();
+pollEvery(loadJob, 10000);
 </script>
 {% endblock %}

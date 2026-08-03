@@ -53,7 +53,7 @@
     font-size: 0.8rem;
     width: 100%;
 }
-.cf-input:focus { outline: none; border-color: var(--primary, #004a6c); box-shadow: 0 0 0 2px rgba(0,74,108,0.12); }
+.cf-input:focus { outline: none; border-color: var(--primary, #004a6c); box-shadow: 0 0 0 2px var(--focus-ring, rgba(0,74,108,0.12)); }
 .cf-actions {
     display: flex; gap: 0.5rem; justify-content: flex-end;
     padding-top: 0.5rem; border-top: 1px solid var(--border-subtle, #ececee);
@@ -65,8 +65,8 @@
     cursor: pointer; transition: all 0.12s; font-family: inherit;
 }
 .cf-btn:hover { background: var(--bg-hover, #f0f1f3); }
-.cf-btn-primary { background: var(--primary, #004a6c); border-color: var(--primary, #004a6c); color: #fff; }
-.cf-btn-primary:hover { background: var(--primary-hover, #003a56); }
+.cf-btn-primary { background: var(--primary-solid, var(--primary, #004a6c)); border-color: var(--primary-solid, var(--primary, #004a6c)); color: #fff; }
+.cf-btn-primary:hover { background: var(--primary-solid-hover, var(--primary-hover, #003a56)); }
 .cf-template-row { display: flex; gap: 0.5rem; align-items: center; }
 .cf-template-row .cf-select { flex: 1; }
 .hidden { display: none !important; }

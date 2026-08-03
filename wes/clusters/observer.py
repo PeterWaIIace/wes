@@ -10,7 +10,7 @@ class NodesObserver:
 
     def __get_server_nodes_info(self) -> list[NodeInfo]:
         fmt = "%N|%P|%T|%C|%G|%m|%R"
-        ok, lines = SshRunner(self.ssh_config).run_command(f"sinfo -N -o '{fmt}'")
+        ok, lines = SshRunner(self.ssh_config).run_command(f"sinfo -N -o '{fmt}'", retries=3)
         if not ok:
             return []
         infos: list[NodeInfo] = []
@@ -19,7 +19,7 @@ class NodesObserver:
         return infos
 
     def __get_server_nodes_capacity(self) -> list[NodeCapacity]:
-        ok, lines = SshRunner(self.ssh_config).run_command("scontrol show nodes -o")
+        ok, lines = SshRunner(self.ssh_config).run_command("scontrol show nodes -o", retries=3)
         if not ok:
             return []
         capacities: list[NodeCapacity] = []

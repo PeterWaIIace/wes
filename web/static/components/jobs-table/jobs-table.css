@@ -39,10 +39,10 @@
     flex-shrink: 0;
 }
 .dot-pending { background: var(--yellow, #d97706); }
-.dot-running { background: var(--green, #0d9488); animation: pulse-dot 2s infinite; }
+.dot-running { background: var(--blue, #4a90d9); animation: pulse-dot 2s infinite; }
 .dot-completed { background: var(--green, #0d9488); }
 .dot-failed { background: var(--red, #dc2626); }
-.dot-cancelled { background: var(--text-muted, #9aa0a6); }
+.dot-cancelled { background: var(--red, #dc2626); }
 @keyframes pulse-dot {
     0%, 100% { opacity: 1; transform: scale(1); }
     50% { opacity: 0.5; transform: scale(0.85); }
@@ -58,7 +58,22 @@
     letter-spacing: 0.02em;
 }
 .badge-pending { background: var(--yellow-light, #fef3cd); color: var(--yellow, #d97706); }
-.badge-running { background: var(--green-light, #e6f7f5); color: var(--green, #0d9488); }
+.badge-running { background: var(--blue-light, #e3edf7); color: var(--blue, #4a90d9); }
 .badge-completed { background: var(--green-light, #e6f7f5); color: var(--green, #0d9488); }
 .badge-failed { background: var(--red-light, #fee2e2); color: var(--red, #dc2626); }
-.badge-cancelled { background: var(--bg-surface, #f7f8fa); color: var(--text-muted, #9aa0a6); }
+.badge-cancelled { background: var(--red-light, #fee2e2); color: var(--red, #dc2626); }
+
+@media (max-width: 760px) {
+    .jobs-table { font-size: 0.76rem; }
+    .jobs-table th, .jobs-table td { padding: 0.35rem 0.5rem; }
+    .jobs-table th:nth-child(3),
+    .jobs-table th:nth-child(5),
+    .jobs-table th:nth-child(8),
+    .jobs-table th:nth-child(9),
+    .jobs-table th:nth-child(10),
+    .jobs-table td:nth-child(3),
+    .jobs-table td:nth-child(5),
+    .jobs-table td:nth-child(8),
+    .jobs-table td:nth-child(9),
+    .jobs-table td:nth-child(10) { display: none; }
+}

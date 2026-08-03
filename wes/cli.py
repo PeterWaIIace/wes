@@ -7,7 +7,14 @@ import time
 
 
 def _serve(args: argparse.Namespace) -> None:
+    import os
     import uvicorn
+
+    if args.demo:
+        os.environ["WES_MOCK"] = "1"
+        print("Starting web interface with a mock SLURM cluster...")
+    else:
+        print("Starting web interface...")
 
     uvicorn.run(
         "web.app:create_app",
@@ -63,6 +70,13 @@ def main() -> None:
     serve_p.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
     serve_p.add_argument("--port", type=int, default=8000, help="Bind port (default: 8000)")
     serve_p.add_argument("--reload", action="store_true", help="Enable auto-reload for development")
+    serve_p.add_argument(
+        "demo",
+        nargs="?",
+        const=True,
+        default=False,
+        help="serve a mock SLURM cluster instead of a real one",
+    )
 
     args, remaining = parser.parse_known_args()
 

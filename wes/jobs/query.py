@@ -17,7 +17,7 @@ class JobsQuery:
     def get(self) -> list[JobInfo]:
         fmt = "%i|%u|%j|%T|%M|%N|%P|%R|%C|%m|%Q"
         runner = SshRunner(self.ssh_config)
-        ok, lines = runner.run_command(f"squeue -o '{fmt}'")
+        ok, lines = runner.run_command(f"squeue -o '{fmt}'", retries=3)
         if not ok:
             return []
         jobs: list[JobInfo] = []
@@ -48,6 +48,7 @@ class JobsQuery:
         runner = SshRunner(self.ssh_config)
         ok, lines = runner.run_command(
             f"sacct {user_flag} -o '{fmt}' --noheader",
+            retries=3,
         )
         if not ok:
             return []

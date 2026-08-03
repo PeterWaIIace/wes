@@ -5,6 +5,7 @@ from pathlib import Path
 
 from wes.cluster import Cluster
 from wes.jobs.job import SshItem
+from wes.jobs.query import JobsQuery
 from wes.remote.runner import SshRunner
 
 
@@ -82,7 +83,7 @@ def cancel_slurm_jobs(ssh: str, job_ids: list[str]) -> list[str]:
     runner = SshRunner(ssh)
     messages: list[str] = []
     for jid in job_ids:
-        ok, _ = runner.run_command(f"scancel {jid}")
+        ok, _ = runner.run_command(f"scancel {jid}", retries=2)
         if ok:
             messages.append(f"cancelled slurm job {jid}")
     return messages
@@ -95,8 +96,6 @@ def remove_remote_dir(ssh: str, path: str) -> bool:
 
 
 def check_jobs_alive(ssh: str, job_ids: list[str]) -> bool:
-    from wes.jobs.query import JobsQuery
-
     if not job_ids:
         return False
     alive_jobs = JobsQuery(ssh).get()

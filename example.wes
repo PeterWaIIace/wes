@@ -1,8 +1,8 @@
 sequence:
-- fly-to-point:
-    branch: Piotr/verifying-control-algorihtms
+- example:
+    git_url: [git repo]
+    branch: [branch of your repo]
     cpus: '2'
-    git_url: ssh://git@ben.ii.pw.edu.pl:9000/pwalas/swarm-gym.git
     gpus: '1'
     job: batch_example/job.sh
     memory: 16G

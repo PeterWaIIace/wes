@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shlex
 import subprocess
+import time
 
 
 class SshRunner:
@@ -39,12 +40,29 @@ class SshRunner:
             if line.strip() and not line.startswith("JOBID")
         ]
 
-    def run_command(self, cmd: str, script: str | None = None) -> tuple[bool, list[str]]:
-        try:
-            return self._ssh_run(self.ssh_config, cmd, script)
-        except Exception as e:
-            print(f"Error running command '{cmd}': {e}")
-            return False, []
+    def run_command(
+        self,
+        cmd: str,
+        script: str | None = None,
+        retries: int = 0,
+        retry_delay: float = 2.0,
+    ) -> tuple[bool, list[str]]:
+        attempt = 0
+        while True:
+            try:
+                ok, out = self._ssh_run(self.ssh_config, cmd, script)
+            except Exception as e:
+                ok, out = False, []
+                print(f"Error running command '{cmd}': {e}")
+            if ok or attempt >= retries:
+                return ok, out
+            attempt += 1
+            wait = retry_delay * attempt
+            print(
+                f"[\033[33m retry \033[0m] command failed, "
+                f"retrying ({attempt}/{retries}) in {wait:.0f}s: {cmd}"
+            )
+            time.sleep(wait)
 
     def create_dir(self, dir: str) -> bool:
         self.log(f"creating run dir {dir}", "▶")

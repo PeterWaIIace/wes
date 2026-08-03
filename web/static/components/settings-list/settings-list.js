@@ -23,9 +23,10 @@ class SettingsList extends WesComponent {
         list.innerHTML = this._items.map((item, i) => `
             <div class="sl-item">
                 <span class="mono">${item}</span>
-                <button class="sl-btn" data-index="${i}" title="Remove">&#x2715;</button>
+                <button class="sl-btn" data-index="${i}" title="Remove"><i data-lucide="x"></i></button>
             </div>
         `).join('');
+        WesComponent.icons(this._shadow);
 
         list.querySelectorAll('.sl-btn').forEach(btn => {
             btn.addEventListener('click', () => {
