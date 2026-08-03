@@ -61,6 +61,23 @@ def list_local_artifacts(name: str) -> list[ArtifactEntry]:
     return artifacts
 
 
+def list_job_artifacts(
+    task_name: str, run_id: str, git_name: str, artifacts: list[str]
+) -> list[ArtifactEntry]:
+    entries: list[ArtifactEntry] = []
+    for artifact in artifacts:
+        for entry in list_local_artifacts(f"{task_name}/{run_id}/{git_name}/{artifact}"):
+            entries.append(
+                ArtifactEntry(
+                    name=entry.name,
+                    kind=entry.kind,
+                    path=f"{artifact}/{entry.path}",
+                    size=entry.size,
+                )
+            )
+    return entries
+
+
 def read_local_logs(name: str) -> LogData:
     return read_logs(RESULTS_DIR / name)
 

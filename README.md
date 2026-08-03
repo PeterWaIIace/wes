@@ -1,6 +1,8 @@
-# WES
+# WES - WUT Experiment Scheduler
 
-WES clones a git repo from a `.wes` YAML file, runs commands on an HPC cluster, and syncs results back.
+WES is set of helper tools for scheduling and observing jobs on slurm from remote machine.
+
+![alt text](image.png)
 
 ## Install
 
@@ -30,7 +32,7 @@ wes sync --ssh hpc      # continuously sync job status
 
 Or via Makefile: `make run`, `make serve`, `make test`, `make check`.
 
-## Config
+## WES tasks
 
 A `.wes` file is YAML. Each task clones a repo and runs a job:
 

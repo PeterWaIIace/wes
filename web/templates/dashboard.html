@@ -411,13 +411,72 @@ async function pollJobStatus(jobId, attempts) {
 
 // ── Dashboard ──
 
+const DASH_CACHE_KEY = 'wes_dashboard';
+
+function saveDashCache(tasks, jobs) {
+    try {
+        localStorage.setItem(DASH_CACHE_KEY, JSON.stringify({ tasks, jobs, ts: Date.now() }));
+    } catch (_) {}
+}
+
+function loadDashCache() {
+    try {
+        const raw = localStorage.getItem(DASH_CACHE_KEY);
+        if (!raw) return null;
+        const data = JSON.parse(raw);
+        if (!data || !Array.isArray(data.tasks) || !Array.isArray(data.jobs)) return null;
+        return data;
+    } catch (_) { return null; }
+}
+
+function renderDashboard(tasks, jobs) {
+    const tasksStatus = document.getElementById('tasks-status');
+    const taskEmpty = document.getElementById('task-empty');
+    const jobsStatus = document.getElementById('jobs-status');
+    const jobsEmpty = document.getElementById('jobs-empty');
+
+    taskConfigs = tasks;
+    cachedJobs = {};
+    jobs.forEach(j => { cachedJobs[j.job_id] = j; });
+
+    if (!tasks.length) {
+        taskEmpty.style.display = '';
+        document.getElementById('task-table').style.display = 'none';
+        tasksStatus.textContent = '';
+    } else {
+        taskEmpty.style.display = 'none';
+        document.getElementById('task-table').style.display = '';
+        renderTasks();
+        tasksStatus.textContent = tasks.length + ' task' + (tasks.length > 1 ? 's' : '');
+    }
+
+    if (!jobs.length) {
+        jobsEmpty.style.display = '';
+        document.getElementById('jobs-list').innerHTML = '';
+        jobsStatus.textContent = '';
+    } else {
+        jobsEmpty.style.display = 'none';
+        renderJobList();
+        jobsStatus.textContent = jobs.length + ' job' + (jobs.length > 1 ? 's' : '');
+    }
+}
+
 async function loadDashboard() {
     const tasksStatus = document.getElementById('tasks-status');
     const tasksError = document.getElementById('tasks-error');
-    const taskEmpty = document.getElementById('task-empty');
     const jobsStatus = document.getElementById('jobs-status');
     const jobsError = document.getElementById('jobs-error');
-    const jobsEmpty = document.getElementById('jobs-empty');
+
+    // First load: show last seen values from the cache until a fresh update arrives.
+    if (!Object.keys(cachedJobs).length && !taskConfigs.length) {
+        const cached = loadDashCache();
+        if (cached) {
+            renderDashboard(cached.tasks, cached.jobs);
+            const ago = cached.ts ? new Date(cached.ts).toLocaleTimeString() : '';
+            tasksStatus.textContent = 'cached ' + ago;
+            jobsStatus.textContent = 'cached ' + ago;
+        }
+    }
 
     tasksStatus.textContent = 'Loading...';
     tasksError.innerHTML = '';
@@ -432,34 +491,36 @@ async function loadDashboard() {
         const tasks = await tasksResp.json();
         const jobs = await jobsResp.json();
 
-        taskConfigs = tasks;
-        cachedJobs = {};
-        jobs.forEach(j => { cachedJobs[j.job_id] = j; });
-
-        if (!tasks.length) {
-            taskEmpty.style.display = '';
-            document.getElementById('task-table').style.display = 'none';
-            tasksStatus.textContent = '';
-        } else {
-            taskEmpty.style.display = 'none';
-            document.getElementById('task-table').style.display = '';
+        const stale = jobsResp.headers.get('X-WES-STALE') === '1';
+        if (stale) {
+            // The cluster could not be reached: the API cannot know the live
+            // state, so keep showing the last seen jobs instead of marking
+            // them completed. Tasks come from local .wes files and stay valid.
+            taskConfigs = tasks;
             renderTasks();
-            tasksStatus.textContent = tasks.length + ' task' + (tasks.length > 1 ? 's' : '');
+            saveDashCache(tasks, Object.values(cachedJobs));
+            tasksStatus.textContent = tasks.length + ' task' + (tasks.length > 1 ? 's' : '') + ' · cluster offline';
+            jobsStatus.textContent = Object.keys(cachedJobs).length + ' job' + (Object.keys(cachedJobs).length > 1 ? 's' : '') + ' · last seen ' + new Date().toLocaleTimeString();
+            jobsError.innerHTML = '<div class="error">Cluster unreachable — showing last seen jobs</div>';
+            return;
         }
 
-        if (!jobs.length) {
-            jobsEmpty.style.display = '';
-            document.getElementById('jobs-list').innerHTML = '';
-            jobsStatus.textContent = '';
-        } else {
-            jobsEmpty.style.display = 'none';
-            renderJobList();
-            jobsStatus.textContent = jobs.length + ' job' + (jobs.length > 1 ? 's' : '');
-        }
+        renderDashboard(tasks, jobs);
+        saveDashCache(tasks, jobs);
     } catch (err) {
+        // A failed connection also counts as an update: keep displaying the
+        // last seen data rather than wiping the dashboard.
+        if (Object.keys(cachedJobs).length || taskConfigs.length) {
+            renderDashboard(taskConfigs, Object.values(cachedJobs));
+        } else {
+            const cached = loadDashCache();
+            if (cached) renderDashboard(cached.tasks, cached.jobs);
+        }
+        const stamp = new Date().toLocaleTimeString();
+        tasksStatus.textContent = 'connection failed · last seen ' + stamp;
+        jobsStatus.textContent = 'connection failed · last seen ' + stamp;
         tasksError.innerHTML = '<div class="error">' + err.message + '</div>';
-        tasksStatus.textContent = '';
-        jobsStatus.textContent = '';
+        jobsError.innerHTML = '<div class="error">Connection failed — showing last seen data</div>';
     }
 }
 
