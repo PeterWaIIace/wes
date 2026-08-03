@@ -576,7 +576,9 @@ def mock_remote_logs(job_id: str) -> dict[str, str] | None:
         ]
     return {
         "stdout": "\n".join(log),
-        "stderr": "" if state in ("RUNNING", "COMPLETED", "PENDING") else "Error: training aborted\n",
+        "stderr": ""
+        if state in ("RUNNING", "COMPLETED", "PENDING")
+        else "Error: training aborted\n",
         "pre_run": f"export WES_TASK={name}\nexport WES_RUN_ID=run-{job_id}\n",
     }
 

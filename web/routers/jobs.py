@@ -294,6 +294,4 @@ def get_job_remote_csv(job_id: str) -> ProgressData:
     ctx = _local_job_context(job_id)
     if not ctx:
         return ProgressData()
-    return read_local_progress(
-        f"{ctx['task_name']}/{ctx['run_id']}/{_git_name(ctx['git_url'])}"
-    )
+    return read_local_progress(f"{ctx['task_name']}/{ctx['run_id']}/{_git_name(ctx['git_url'])}")

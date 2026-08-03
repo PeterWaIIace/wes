@@ -8,6 +8,7 @@ import time
 
 def _serve(args: argparse.Namespace) -> None:
     import os
+
     import uvicorn
 
     if args.demo:
