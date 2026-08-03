@@ -7,9 +7,13 @@ WES is set of helper tools for scheduling and observing jobs on slurm from remot
 ## Todo:
 
 [x] WES cli - tool for launching jobs
+
 [x] WES web - tool for cluster utilization and job monitoring
+
 [ ] WES sync - tool for syncing files with cluster
+
 [ ] WES web faster file sync (current files are syncing but it takes a lot of time)
+
 
 ## Install
 
