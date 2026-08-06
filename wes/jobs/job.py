@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import secrets
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -125,7 +126,7 @@ class Job:
         self.ssh_config = ssh_config
 
         self.task = task
-        self.namespace = namespace or secrets.token_urlsafe(8)
+        self.namespace = f"{self.task.name}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(2)}"
         self.job_name = f"{self.task.name}_{self.namespace}"
 
         self.job_dir = self.task.name + "/" + self.namespace
