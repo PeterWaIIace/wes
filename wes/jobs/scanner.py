@@ -13,7 +13,25 @@ class JobScanner:
         self.runner = SshRunner(ssh_config)
         self.base_dir = base_dir
 
-    def _list_job_dirs(self) -> list[str]:
+    def list_dir(
+        self,
+        lsdir: str | None = None,
+        recursive: bool = False,
+        depth: int | None = None,
+    ) -> list[str]:
+        target = lsdir if lsdir is not None else self.base_dir
+        if not recursive and depth is None:
+            depth = 1
+        cmd = f"find {target} -type d"
+        if depth is not None:
+            cmd += f" -maxdepth {depth}"
+    
+        ok, lines = self.runner.run_command(cmd)
+        if not ok:
+            return []
+        return lines
+
+    def _find_config(self) -> list[str]:
         ok, lines = self.runner.run_command(
             f"find {self.base_dir} -maxdepth 4 -name '*_config.json'"
         )
@@ -50,7 +68,7 @@ class JobScanner:
         )
 
     def scan(self) -> list[Job]:
-        config_paths = self._list_job_dirs()
+        config_paths = self._find_config()
         results = []
         for path in config_paths:
             try:

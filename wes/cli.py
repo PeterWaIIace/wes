@@ -1,48 +1,46 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from wes.engine import Engine
+from wes.jobs.scanner import JobScanner
 
 import argparse
 import signal
 import time
 
+class WES:
 
-def _launch(args: argparse.Namespace) -> None:
-    from wes.engine import Engine
+    def __init__(self, ssh : str | None = None):
+        self.ssh = ssh # if none then lazy init
 
-    engine = Engine()
-    engine.start_jobs(task_file=args.config)
+    def set_ssh(self, ssh):
+        self.ssh = ssh
 
+    def dispatch(self, config) -> None:
+        engine = Engine()
+        engine.start_jobs(task_file=config)
 
-def _sync(args: argparse.Namespace) -> None:
-    from wes.engine import Engine
+    def sync(self) -> None:
+        engine = Engine()
+        engine.add_user(self.ssh)
+        engine.background_scan()
 
-    engine = Engine()
-    engine.add_user(args.ssh)
-    print(f"Starting sync for {args.ssh}...")
-    engine.background_scan()
+        def _shutdown(signum, frame):
+            engine.run = False
 
-    def _shutdown(signum, frame):
-        engine.run = False
+        signal.signal(signal.SIGINT, _shutdown)
+        signal.signal(signal.SIGTERM, _shutdown)
 
-    signal.signal(signal.SIGINT, _shutdown)
-    signal.signal(signal.SIGTERM, _shutdown)
+        try:
+            while engine.run:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            engine.run = False
+        finally:
+            print("\nShutting down...")
+            engine.stop()
 
-    try:
-        while engine.run:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        engine.run = False
-    finally:
-        print("\nShutting down...")
-        engine.stop()
-
-
-def _ls(args: argparse.Namespace) -> None:
-    from wes.jobs.scanner import JobScanner
-
-    for job in JobScanner(args.ssh).scan():
-        print(job.namespace, job.job_name)
-
+    def ls(self, lsdir=None, recursive=False, depth=None) -> None:
+        return JobScanner(self.ssh).list_dir(lsdir, recursive=recursive, depth=depth)
 
 class WesParser:
 
@@ -57,6 +55,8 @@ class WesParser:
             kwargs = {"help": argument["help"]}
             if argument.get("required"):
                 kwargs["required"] = True
+            if "action" in argument:
+                kwargs["action"] = argument["action"]
             sub_parser.add_argument(argument["argument"], **kwargs)
         self.callbacks[command] = callback
 
@@ -65,22 +65,24 @@ class WesParser:
 
         callback = self.callbacks.get(args.command)
         if callback:
-            callback(args)
+           result = callback(args)
+           print(result)
         elif remaining and remaining[0].endswith(".wes"):
             args.config = remaining[0]
-            _launch(args)
+            _launch()
         else:
             self.parser.print_help()
 
 
 def main() -> None:
 
+    wes = WES()
     parser = WesParser()
 
     parser.add_sub(
         "dispatch",
         help="Dispatches tasks from a .wes config file and exit",
-        callback=_launch,
+        callback= lambda args : [wes.set_ssh(args.ssh), wes.dispatch(args.config)][1],
         arguments=[
             {
                 "argument": "config",
@@ -92,7 +94,7 @@ def main() -> None:
     parser.add_sub(
         "sync",
         help="One time sync job status for an SSH config",
-        callback=_sync,
+        callback= lambda args : [wes.set_ssh(args.ssh), wes.sync()][1],
         arguments=[
             {
                 "argument": "--ssh",
@@ -105,12 +107,21 @@ def main() -> None:
     parser.add_sub(
         "ls",
         help="List dirs SSH config",
-        callback=_ls,
+        callback=lambda args : [wes.set_ssh(args.ssh), wes.ls()][1],
         arguments=[
             {
                 "argument": "--ssh",
                 "help": "SSH config name",
                 "required": True,
+            },
+            {
+                "argument": "--depth",
+                "help": "Max depth for recursive listing (default: unlimited)",
+            },
+            {
+                "argument": "--recursive",
+                "help": "List directories recursively",
+                "action": "store_true",
             },
         ],
     )
