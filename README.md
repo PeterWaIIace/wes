@@ -8,11 +8,7 @@ WES is set of helper tools for scheduling and observing jobs on slurm from remot
 
 [x] WES cli - tool for launching jobs
 
-[x] WES web - tool for cluster utilization and job monitoring
-
 [ ] WES sync - tool for syncing files with cluster
-
-[ ] WES web faster file sync (current files are syncing but it takes a lot of time)
 
 
 ## Install
@@ -28,20 +24,12 @@ uv sync
 
 ## Run
 
-Run web interface: 
-
-```bash
-wes serve               # web interface at http://127.0.0.1:8000
-```
-
-Command line option:
-
 ```bash
 wes launch task.wes     # run tasks from a config
 wes sync --ssh hpc      # continuously sync job status
 ```
 
-Or via Makefile: `make run`, `make serve`, `make test`, `make check`.
+Or via Makefile: `make run`, `make test`, `make check`.
 
 ## WES tasks
 
@@ -63,5 +51,30 @@ sequence:
 ```
 
 See `task.wes` for a working example.
+
+## Job status on the server
+
+Every scheduled task writes a `wes.status` file into its remote job directory
+(`<task>/<namespace>/wes.status`), updated by `wes sync` whenever the SLURM state changes:
+
+```bash
+ssh hpc 'cat <task>/<namespace>/wes.status'
+```
+
+```
+task=ncpu_alu
+namespace=ncpu_alu_20260922101030_ab12
+job_name=ncpu_alu_ncpu_alu_20260922101030_ab12
+ssh=hpc
+state=RUNNING
+updated=2026-09-22 10:15:02
+job_id=4242
+node=h86
+partition=gpu
+```
+
+States: `PENDING` (submitted), `RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`.
+Failures before submission (clone, pre-script, `sbatch`) are recorded in `message`.
+The file is removed together with the job directory when `cleanup: True`.
 
 Optional git credentials go in a `.env` file (see `.env.example`).

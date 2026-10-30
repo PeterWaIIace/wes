@@ -3,12 +3,15 @@ from __future__ import annotations
 import time
 from threading import Lock, Thread
 
-from wes.jobs.job import Job
+from wes.jobs.job import Job, JobInfo
 from wes.jobs.query import JobsQuery
 from wes.jobs.scanner import JobScanner
 from wes.parser import WESParser
 from wes.remote.runner import SshRunner
+from wes.states import State
 from wes.utils import thread_safe
+
+_FINISHED_STATES = (State.COMPLETED, State.FAILED, State.CANCELLED)
 
 
 class User:
@@ -89,11 +92,25 @@ class Engine:
 
     @thread_safe("engine_lock")
     def scan_slurm_info(self):
-        infos = []
+        infos: dict[str, JobInfo] = {}
         for ssh_conf, _user in self.current_users.items():
-            infos += JobsQuery(ssh_conf).get()
+            for info in JobsQuery(ssh_conf).get():
+                infos[info.name] = info
 
-        infos = {info.name: info for info in infos}
+        # squeue only knows about live jobs, ask sacct for the ones that ended
+        unfinished = {
+            job.job_name
+            for job in self.jobs.values()
+            if job.job_name not in infos and job.status.state not in _FINISHED_STATES
+        }
+        if unfinished:
+            for ssh_conf, user in self.current_users.items():
+                if not user.name:
+                    continue
+                for info in JobsQuery(ssh_conf).get_recent(user.name):
+                    if info.name in unfinished:
+                        infos[info.name] = info
+
         for job in self.jobs.values():
             if job.job_name in infos:
                 job.set_info(infos[job.job_name])

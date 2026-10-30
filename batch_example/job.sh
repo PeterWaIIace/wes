@@ -4,7 +4,7 @@
 #SBATCH --partition=gpu            # nazwa partycji
 #SBATCH --nodes=1                  # liczba węzłów
 #SBATCH --ntasks=1                 # liczba zadań
-#SBATCH --nodelist=h86             # wybierz GPU
+#SBATCH --nodelist=h32          # wybierz GPU
 #SBATCH --cpus-per-task=2          # liczba CPU na zadanie
 #SBATCH --gres=gpu:1               # liczba i typ gpu
 #SBATCH --mem=16G                  # pamięć RAM

@@ -77,7 +77,6 @@ class WESParser:
         name = task_data.get("name", "Unnamed Task")
         _validate_task(name, task_data)
 
-        print(f"Parsing: {task_data}")
         return Task(
             name=name,
             git_url=task_data["git_url"],

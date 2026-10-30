@@ -6,6 +6,7 @@ from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
 
+from wes.jobs.status import JobStatus, StatusFile, now, slurm_state
 from wes.remote.runner import SshRunner
 from wes.states import State
 from wes.tasks.tasks import Task
@@ -126,12 +127,15 @@ class Job:
         self.ssh_config = ssh_config
 
         self.task = task
-        self.namespace = f"{self.task.name}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(2)}"
+        self.namespace = (
+            f"{self.task.name}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(2)}"
+        )
         self.job_name = f"{self.task.name}_{self.namespace}"
 
         self.job_dir = self.task.name + "/" + self.namespace
         self.repo_dir = self.job_dir + "/" + self.task.git_url.split("/")[-1].split(".")[0]
 
+        self.status_files = []
         self.artifacts = []
         self.script = None
         self.pre_script = None
@@ -144,9 +148,61 @@ class Job:
         self._setup_job_config()
 
         self.info = None  # lazy init
+        self.status = JobStatus(
+            task=self.task.name,
+            namespace=self.namespace,
+            job_name=self.job_name,
+            ssh=self.ssh_config,
+        )
+        self.status_file = StatusFile(self.job_dir, ssh_config)
+        self._status_written = False
 
     def set_info(self, job_info: JobInfo):
         self.info = job_info
+        self.write_status(
+            slurm_state(job_info.state),
+            job_id=job_info.job_id,
+            node=job_info.nodes,
+            partition=job_info.partition,
+        )
+
+    def _status_signature(self) -> tuple:
+        return (
+            self.status.state,
+            self.status.job_id,
+            self.status.node,
+            self.status.partition,
+            self.status.message,
+        )
+
+    def write_status(
+        self,
+        state: State,
+        message: str = "",
+        job_id: str = "",
+        node: str = "",
+        partition: str = "",
+    ) -> bool:
+        """Push the current status to ``wes.status`` on the server.
+
+        The remote file is only rewritten when something actually changed.
+        """
+        previous = self._status_signature()
+        if job_id:
+            self.status.job_id = job_id
+        if node:
+            self.status.node = node
+        if partition:
+            self.status.partition = partition
+        self.status.state = state
+        self.status.message = message
+        self.status.updated = now()
+
+        if self._status_written and self._status_signature() == previous:
+            return True
+
+        self._status_written = True
+        return self.status_file.write(self.status)
 
     def _setup_artifacts(self):
         self.artifacts = []
@@ -156,11 +212,11 @@ class Job:
             r_path = f"{self.repo_dir}/{path}"
             self.artifacts.append(SshItem(h_path=h_path, r_path=r_path, ssh_config=self.ssh_config))
 
-        for log_name in ("job_output.txt", "job_error.txt"):
+        for log_name in ("job_output.txt", "job_error.txt", ".wes.status"):
             h_path = f"results/{self.job_dir}/{log_name}"
             Path(h_path).parent.mkdir(parents=True, exist_ok=True)
             r_path = f"{self.job_dir}/{log_name}"
-            self.artifacts.append(SshItem(h_path=h_path, r_path=r_path, ssh_config=self.ssh_config))
+            self.status_files.append(SshItem(h_path=h_path, r_path=r_path, ssh_config=self.ssh_config))
 
     def _setup_scripts(self):
         job_script = self.task.job_script.split("/")[-1]
@@ -204,10 +260,11 @@ class Job:
 
     def _clone_repo(self) -> bool:
         git_name = self.task.git_url.split("/")[-1].replace(".git", "")
+        ssh_opts = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
         if self.task.branch:
-            clone_cmd = f"git clone -b {self.task.branch} {self.task.git_url} {git_name}"
+            clone_cmd = f"GIT_SSH_COMMAND='ssh {ssh_opts}' git clone -b {self.task.branch} {self.task.git_url} {git_name}"
         else:
-            clone_cmd = f"git clone {self.task.git_url} {git_name}"
+            clone_cmd = f"GIT_SSH_COMMAND='ssh {ssh_opts}' git clone {self.task.git_url} {git_name}"
         ok, result = self.job_ssh_client.cmd(clone_cmd)
         if not ok:
             print(f"Clone failed: {result}")
@@ -215,6 +272,7 @@ class Job:
 
     def execute_job(self) -> State:
         if not self._clone_repo():
+            self.write_status(State.FAILED, "git clone failed")
             return State.FAILED
 
         if self.pre_script:
@@ -223,6 +281,7 @@ class Job:
             print(f"Pre-script output:\n{result}")
             if not ok:
                 print(f"Pre-script failed: {result}")
+                self.write_status(State.FAILED, "pre-script failed")
                 return State.FAILED
 
         sbatch_cmd = f"sbatch --parsable --job-name={self.job_name}"
@@ -231,5 +290,11 @@ class Job:
         ok, result = self.job_ssh_client.cmd(sbatch_cmd, retries=3)
         if not ok:
             print(f"Job submission failed: {result}")
+            self.write_status(State.FAILED, "sbatch submission failed")
             return State.FAILED
+
+        job_id = result[0].strip().split(";")[0] if result else ""
+        if job_id and job_id not in self.task.jobs_ids:
+            self.task.jobs_ids.append(job_id)
+        self.write_status(State.PENDING, job_id=job_id)
         return State.PENDING

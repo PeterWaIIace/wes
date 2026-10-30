@@ -6,26 +6,6 @@ import signal
 import time
 
 
-def _serve(args: argparse.Namespace) -> None:
-    import os
-
-    import uvicorn
-
-    if args.demo:
-        os.environ["WES_MOCK"] = "1"
-        print("Starting web interface with a mock SLURM cluster...")
-    else:
-        print("Starting web interface...")
-
-    uvicorn.run(
-        "web.app:create_app",
-        factory=True,
-        host=args.host,
-        port=args.port,
-        reload=args.reload,
-    )
-
-
 def _launch(args: argparse.Namespace) -> None:
     from wes.engine import Engine
 
@@ -57,38 +37,82 @@ def _sync(args: argparse.Namespace) -> None:
         engine.stop()
 
 
+def _ls(args: argparse.Namespace) -> None:
+    from wes.jobs.scanner import JobScanner
+
+    for job in JobScanner(args.ssh).scan():
+        print(job.namespace, job.job_name)
+
+
+class WesParser:
+
+    def __init__(self):
+        self.parser = argparse.ArgumentParser(prog="wes")
+        self.sub = self.parser.add_subparsers(dest="command")
+        self.callbacks = {}
+
+    def add_sub(self, command: str, help: str, callback, arguments: list):
+        sub_parser = self.sub.add_parser(command, help=help)
+        for argument in arguments or []:
+            kwargs = {"help": argument["help"]}
+            if argument.get("required"):
+                kwargs["required"] = True
+            sub_parser.add_argument(argument["argument"], **kwargs)
+        self.callbacks[command] = callback
+
+    def parse(self):
+        args, remaining = self.parser.parse_known_args()
+
+        callback = self.callbacks.get(args.command)
+        if callback:
+            callback(args)
+        elif remaining and remaining[0].endswith(".wes"):
+            args.config = remaining[0]
+            _launch(args)
+        else:
+            self.parser.print_help()
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="wes")
-    sub = parser.add_subparsers(dest="command")
 
-    launch_p = sub.add_parser("launch", help="Launch tasks from a .wes config file and exit")
-    launch_p.add_argument("config", help="Path to .wes config file")
+    parser = WesParser()
 
-    sync_p = sub.add_parser("sync", help="Continuously sync job status for an SSH config")
-    sync_p.add_argument("--ssh", required=True, help="SSH config name")
-
-    serve_p = sub.add_parser("serve", help="Start the web interface")
-    serve_p.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
-    serve_p.add_argument("--port", type=int, default=8000, help="Bind port (default: 8000)")
-    serve_p.add_argument("--reload", action="store_true", help="Enable auto-reload for development")
-    serve_p.add_argument(
-        "demo",
-        nargs="?",
-        const=True,
-        default=False,
-        help="serve a mock SLURM cluster instead of a real one",
+    parser.add_sub(
+        "dispatch",
+        help="Dispatches tasks from a .wes config file and exit",
+        callback=_launch,
+        arguments=[
+            {
+                "argument": "config",
+                "help": "Path to .wes config file",
+            },
+        ],
     )
 
-    args, remaining = parser.parse_known_args()
+    parser.add_sub(
+        "sync",
+        help="One time sync job status for an SSH config",
+        callback=_sync,
+        arguments=[
+            {
+                "argument": "--ssh",
+                "help": "SSH config name",
+                "required": True,
+            },
+        ],
+    )
 
-    if args.command == "serve":
-        _serve(args)
-    elif args.command == "launch":
-        _launch(args)
-    elif args.command == "sync":
-        _sync(args)
-    elif remaining and remaining[0].endswith(".wes"):
-        args.config = remaining[0]
-        _launch(args)
-    else:
-        parser.print_help()
+    parser.add_sub(
+        "ls",
+        help="List dirs SSH config",
+        callback=_ls,
+        arguments=[
+            {
+                "argument": "--ssh",
+                "help": "SSH config name",
+                "required": True,
+            },
+        ],
+    )
+
+    parser.parse()

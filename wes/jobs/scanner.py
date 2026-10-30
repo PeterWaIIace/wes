@@ -53,12 +53,16 @@ class JobScanner:
         config_paths = self._list_job_dirs()
         results = []
         for path in config_paths:
-            config = self._read_config(path)
-            if not config:
+            try:
+                config = self._read_config(path)
+                if not config:
+                    continue
+                task = self._config_to_task(config)
+                ssh_config = config.get("job", {}).get("ssh_config", self.ssh_config)
+                namespace = config.get("job", {}).get("namespace", "")
+                job = Job(task, ssh_config, namespace=namespace)
+                results.append(job)
+            except Exception as e:
+                print(f"  ✗ skipping broken config {path}: {e}")
                 continue
-            task = self._config_to_task(config)
-            ssh_config = config.get("job", {}).get("ssh_config", self.ssh_config)
-            namespace = config.get("job", {}).get("namespace", "")
-            job = Job(task, ssh_config, namespace=namespace)
-            results.append(job)
         return results
