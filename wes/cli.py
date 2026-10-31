@@ -1,50 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-from wes.engine import Engine
-from wes.jobs.scanner import JobScanner
-from wes.jobs.job import SshItem
+from wes import WES
 
 import argparse
 import signal
 import time
-
-class WES:
-
-    def __init__(self, ssh : str | None = None):
-        self.ssh = ssh # if none then lazy init
-
-    def set_ssh(self, ssh):
-        self.ssh = ssh
-
-    def dispatch(self, config) -> None:
-        engine = Engine()
-        engine.start_jobs(task_file=config)
-
-    def pull(self, pull_dir) -> list:
-        SshItem(pull_dir, pull_dir, self.ssh).sync()
-
-    def sync(self) -> None:
-        engine = Engine()
-        engine.add_user(self.ssh)
-        engine.background_scan()
-
-        def _shutdown(signum, frame):
-            engine.run = False
-
-        signal.signal(signal.SIGINT, _shutdown)
-        signal.signal(signal.SIGTERM, _shutdown)
-
-        try:
-            while engine.run:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            engine.run = False
-        finally:
-            print("\nShutting down...")
-            engine.stop()
-
-    def ls(self, lsdir=None, recursive=False, depth=None) -> list:
-        return JobScanner(self.ssh).list_dir(lsdir, recursive=recursive, depth=depth)
 
 class WesParser:
 

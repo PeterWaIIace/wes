@@ -53,7 +53,7 @@ class SshItem(MirrorItem):
     def sync(self):
         print("SSHItem.sync()", self.r_path, self.r_name, "->", self.h_path, self.h_name)
         Path(self.h_path).mkdir(parents=True, exist_ok=True)
-        ok = self.ssh.scp_from(self.r_path, self.r_name, self.h_path + "/" + self.h_name, r=True)
+        ok = self.ssh.scp_from(self.r_path, self.r_name, self.h_path + "/", r=True)
         if not ok:
             print(
                 f"  ✗ rsync failed: "
