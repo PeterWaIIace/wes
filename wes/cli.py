@@ -2,6 +2,7 @@
 from __future__ import annotations
 from wes.engine import Engine
 from wes.jobs.scanner import JobScanner
+from wes.jobs.job import SshItem
 
 import argparse
 import signal
@@ -18,6 +19,9 @@ class WES:
     def dispatch(self, config) -> None:
         engine = Engine()
         engine.start_jobs(task_file=config)
+
+    def pull(self, pull_dir) -> list:
+        SshItem(pull_dir, pull_dir, self.ssh).sync()
 
     def sync(self) -> None:
         engine = Engine()
@@ -39,7 +43,7 @@ class WES:
             print("\nShutting down...")
             engine.stop()
 
-    def ls(self, lsdir=None, recursive=False, depth=None) -> None:
+    def ls(self, lsdir=None, recursive=False, depth=None) -> list:
         return JobScanner(self.ssh).list_dir(lsdir, recursive=recursive, depth=depth)
 
 class WesParser:
@@ -65,11 +69,10 @@ class WesParser:
 
         callback = self.callbacks.get(args.command)
         if callback:
-           result = callback(args)
-           print(result)
+            result = callback(args)
+            print(result)
         elif remaining and remaining[0].endswith(".wes"):
-            args.config = remaining[0]
-            _launch()
+            WES().dispatch(remaining[0])
         else:
             self.parser.print_help()
 
@@ -82,7 +85,7 @@ def main() -> None:
     parser.add_sub(
         "dispatch",
         help="Dispatches tasks from a .wes config file and exit",
-        callback= lambda args : [wes.set_ssh(args.ssh), wes.dispatch(args.config)][1],
+        callback=lambda args: wes.dispatch(args.config),
         arguments=[
             {
                 "argument": "config",
@@ -106,13 +109,17 @@ def main() -> None:
 
     parser.add_sub(
         "ls",
-        help="List dirs SSH config",
-        callback=lambda args : [wes.set_ssh(args.ssh), wes.ls()][1],
+        help="List entries at a remote path",
+        callback=lambda args: [wes.set_ssh(args.ssh), wes.ls(lsdir=args.path, recursive=args.recursive, depth=args.depth)][1],
         arguments=[
             {
                 "argument": "--ssh",
                 "help": "SSH config name",
                 "required": True,
+            },
+            {
+                "argument": "--path",
+                "help": "Path where command should be executed",
             },
             {
                 "argument": "--depth",
@@ -122,6 +129,24 @@ def main() -> None:
                 "argument": "--recursive",
                 "help": "List directories recursively",
                 "action": "store_true",
+            },
+        ],
+    )
+
+    parser.add_sub(
+        "pull",
+        help="Pull a directory from the remote to the same local path",
+        callback=lambda args: [wes.set_ssh(args.ssh), wes.pull(args.path)][1],
+        arguments=[
+            {
+                "argument": "--ssh",
+                "help": "SSH config name",
+                "required": True,
+            },
+            {
+                "argument": "--path",
+                "help": "Remote directory to pull",
+                "required": True,
             },
         ],
     )

@@ -20,12 +20,13 @@ class JobScanner:
         depth: int | None = None,
     ) -> list[str]:
         target = lsdir if lsdir is not None else self.base_dir
-        if not recursive and depth is None:
-            depth = 1
-        cmd = f"find {target} -type d"
-        if depth is not None:
-            cmd += f" -maxdepth {depth}"
-    
+        if not recursive:
+            cmd = f"find {target} -mindepth 1 -maxdepth {depth or 1}"
+        else:
+            cmd = f"find {target}"
+            if depth is not None:
+                cmd += f" -maxdepth {depth}"
+
         ok, lines = self.runner.run_command(cmd)
         if not ok:
             return []
