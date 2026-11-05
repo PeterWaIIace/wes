@@ -1,0 +1,5 @@
+#!/usr/bin/env python3
+"""Mock sinfo: fixed nodes in the NodeInfo pipe format."""
+print("NODELIST|PARTITION|STATE|CPUS|GRES|MEMORY|REASON")
+print("mock-node1|mock|idle|4/12|2|64000+|")
+print("mock-node2|mock|alloc|16/0|0|128000+|")

@@ -1,0 +1,49 @@
+[project]
+name = "wes-hub"
+version = "0.1.0"
+description = "Scheduling server and Actions-like web UI for WES (WUT Experiment Scheduler)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    # WES is not on PyPI yet. uv resolves it from the parent checkout in this
+    # repo via [tool.uv.sources] below; plain pip needs:  pip install -e ..
+    "wes",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+]
+
+[tool.uv.sources]
+wes = { path = "..", editable = true }
+
+[project.scripts]
+wes-hub = "weshub.cli:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.5.7",
+    "pytest>=8.0.0",
+    "httpx>=0.27.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["weshub*"]
+
+[tool.setuptools.package-data]
+weshub = ["web/*", "mock/bin/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.format]
+quote-style = "double"

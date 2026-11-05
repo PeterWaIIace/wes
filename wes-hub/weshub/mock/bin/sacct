@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+"""Mock sacct: print finished jobs in the pipe format wes expects."""
+import os
+import sys
+import time
+from pathlib import Path
+
+state = Path(os.environ.get("WESHUB_MOCK_STATE", "/dev/null"))
+if not state.exists():
+    sys.exit(0)
+
+print("JOBID|USER|NAME|STATE|TIME|NODELIST|PARTITION|REASON|CPUS|MEM|PRIORITY")
+for line in state.read_text().splitlines():
+    parts = line.split("|")
+    if len(parts) < 5:
+        continue
+    job_id, name, job_state, submit, _dir = parts[0], parts[1], parts[2], parts[3], parts[4]
+    if job_state in ("PENDING", "RUNNING", "SUSPENDED", "COMPLETING"):
+        continue
+    try:
+        elapsed = max(int(time.time() - float(submit)), 0)
+    except ValueError:
+        elapsed = 0
+    mins, secs = divmod(elapsed, 60)
+    print(f"{job_id}|mockuser|{name}|{job_state}|{mins}:{secs:02d}|mock-node1|mock|-|4|16G|100")

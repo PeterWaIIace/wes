@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>wes hub</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 16 16" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M1.5 8a6.5 6.5 0 1 1 13 0A6.5 6.5 0 0 1 1.5 8Zm6.5 5.35A5.35 5.35 0 1 0 8 2.65a5.35 5.35 0 0 0 0 10.7ZM8 6.25a1.75 1.75 0 1 1 0 3.5 1.75 1.75 0 0 1 0-3.5Z"></path></svg>
+    <span>wes <b>hub</b></span>
+  </div>
+  <nav class="tabs">
+    <button class="tab active" data-view="runs">Runs</button>
+    <button class="tab" data-view="jobs">Jobs</button>
+    <button class="tab" data-view="clusters">Clusters</button>
+  </nav>
+  <div class="spacer"></div>
+  <span class="pollhint" id="pollhint"></span>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="side-actions">
+      <button class="btn primary" id="new-pipeline-btn">New pipeline</button>
+    </div>
+    <h3>Pipelines</h3>
+    <ul id="pipeline-list" class="pipeline-list"></ul>
+  </aside>
+
+  <main class="content">
+    <section id="view-runs" class="view">
+      <div class="list-head">
+        <h2 id="runs-title">All runs</h2>
+        <button class="btn" id="dispatch-all-none" hidden>Dispatch</button>
+      </div>
+      <div id="runs-list" class="card-list"></div>
+    </section>
+
+    <section id="view-jobs" class="view hidden">
+      <h2>Jobs <span class="sub">dispatched &amp; discovered</span></h2>
+      <div id="jobs-list" class="card-list"></div>
+    </section>
+
+    <section id="view-clusters" class="view hidden">
+      <h2>Clusters</h2>
+      <div id="clusters-list"></div>
+    </section>
+
+    <section id="view-detail" class="view hidden">
+      <div id="run-detail"></div>
+    </section>
+  </main>
+</div>
+
+<dialog id="pipeline-dialog" class="dialog">
+  <form id="pipeline-form" method="dialog">
+    <h3 id="dialog-title">New pipeline</h3>
+    <label>Name <input name="name" required placeholder="ncpu-alu-sweep"></label>
+    <label>SSH config <input name="ssh" placeholder="hpc"></label>
+    <label>Cron schedule <input name="cron" placeholder="0 4 * * * (optional)"></label>
+    <label>Tasks (.wes YAML)
+      <textarea name="wes_yaml" rows="12" required placeholder="sequence:
+- my_task:
+    git_url: ssh://git@host/user/repo.git
+    branch: main
+    ssh: hpc
+    job: job.sh
+    artifacts: [results]"></textarea>
+    </label>
+    <label>Assets (JSON {"path": "content"})
+      <textarea name="assets" rows="4" placeholder='{"job.sh": "#!/bin/bash\necho hello"}'></textarea>
+    </label>
+    <label class="checkline"><input type="checkbox" name="enabled" checked> enabled</label>
+    <p class="error" id="form-error"></p>
+    <div class="row">
+      <button type="submit" class="btn primary">Save</button>
+      <button type="button" class="btn" id="dialog-cancel">Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

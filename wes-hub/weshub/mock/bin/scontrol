@@ -1,0 +1,12 @@
+#!/usr/bin/env python3
+"""Mock scontrol: fabricate two nodes in scontrol show nodes -o format."""
+print(
+    "NodeName=mock-node1 Arch=x86_64 CoresPerSocket=8 Sockets=2 Cpus=16 "
+    "CPUAlloc=4 RealMemory=64000 AllocMem=16000 FreeMem=45000 "
+    "State=IDLE Partitions=mock Gres=gpu:mock:2(IDX:0)"
+)
+print(
+    "NodeName=mock-node2 Arch=x86_64 CoresPerSocket=8 Sockets=2 Cpus=16 "
+    "CPUAlloc=16 RealMemory=128000 AllocMem=64000 FreeMem=60000 "
+    "State=MIXED Partitions=mock Gres=(null)"
+)

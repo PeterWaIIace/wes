@@ -1,0 +1,10 @@
+{
+  "name": "ncpu-alu-daily",
+  "ssh": "hpc",
+  "cron": "0 4 * * *",
+  "enabled": true,
+  "wes_yaml": "sequence:\n  - ncpu_alu:\n      git_url: ssh://git@github.com/user/ncpu.git\n      branch: main\n      ssh: hpc\n      job: job.sh\n      artifacts: [results]\n      cpus: '4'\n      memory: 16G\n",
+  "assets": {
+    "job.sh": "#!/bin/bash\n#SBATCH --ntasks=1\necho running alu suite\n./run_alu.sh\n"
+  }
+}
