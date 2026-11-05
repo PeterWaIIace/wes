@@ -7,6 +7,20 @@ from wes.states import State
 from wes.tasks import Task
 
 
+def test_cached_task_roundtrip_wes_file() -> None:
+    task = Task(
+        name="t",
+        git_url="ssh://git@example.com/repo.git",
+        ssh_config="hpc",
+        job_script="job.sh",
+        wes_file="ncpu_adder.wes",
+    )
+    data = JobCache.task_to_cache_data(task)
+    assert data["wes_file"] == "ncpu_adder.wes"
+    restored = JobCache.cached_task("t", data)
+    assert restored.wes_file == "ncpu_adder.wes"
+
+
 def test_cache_empty_on_start() -> None:
     cache = JobCache()
     try:

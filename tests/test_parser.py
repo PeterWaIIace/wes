@@ -5,6 +5,20 @@ import pytest
 from wes.parser import ConfigError, WESParser
 
 
+def test_parse_sets_wes_file_on_tasks(wes_file) -> None:
+    p = wes_file(
+        """
+        sequence:
+            my-job:
+                git_url: ssh://git@example.com/repo.git
+                ssh: hpc
+                job: scripts/job.sh
+        """
+    )
+    tasks = WESParser().parse(p)
+    assert tasks[0].wes_file == str(p)
+
+
 class TestWESParserValid:
     def test_parse_minimal(self, wes_file) -> None:
         content = """

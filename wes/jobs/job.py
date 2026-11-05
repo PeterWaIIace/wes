@@ -1,12 +1,22 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
-from datetime import datetime
+import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
-from wes.jobs.status import JobStatus, StatusFile, now, slurm_state
+from wes.jobs.status import (
+    STATUS_FILENAME,
+    JobStatus,
+    StatusFile,
+    inject_job_status,
+    inject_pre_status,
+    now,
+)
 from wes.remote.runner import SshRunner
 from wes.states import State
 from wes.tasks.tasks import Task
@@ -79,6 +89,7 @@ class JobConfig(SshItem):
             },
             "task": {
                 "name": self.task.name,
+                "wes_file": self.task.wes_file,
                 "git_url": self.task.git_url,
                 "path": self.task.path,
                 "ssh_config": self.task.ssh_config,
@@ -154,18 +165,28 @@ class Job:
             namespace=self.namespace,
             job_name=self.job_name,
             ssh=self.ssh_config,
+            wes_file=self.task.wes_file,
         )
         self.status_file = StatusFile(self.job_dir, ssh_config)
         self._status_written = False
 
     def set_info(self, job_info: JobInfo):
+        # SLURM metadata only. The wes.status file on the server is owned by
+        # the job's shell scripts (pre.sh/job.sh), not by this poll.
         self.info = job_info
-        self.write_status(
-            slurm_state(job_info.state),
-            job_id=job_info.job_id,
-            node=job_info.nodes,
-            partition=job_info.partition,
-        )
+
+    def pull_status(self) -> bool:
+        """Read ``wes.status`` from the server into ``self.status``.
+
+        The file is written by the job's own scripts (via wes_status.sh), so
+        it is the source of truth for the job state.
+        """
+        remote = self.status_file.read()
+        if remote is None:
+            return False
+        self.status = remote
+        self._status_written = True
+        return True
 
     def _status_signature(self) -> tuple:
         return (
@@ -213,11 +234,13 @@ class Job:
             r_path = f"{self.repo_dir}/{path}"
             self.artifacts.append(SshItem(h_path=h_path, r_path=r_path, ssh_config=self.ssh_config))
 
-        for log_name in ("job_output.txt", "job_error.txt", ".wes.status"):
+        for log_name in ("job_output.txt", "job_error.txt", STATUS_FILENAME):
             h_path = f"results/{self.job_dir}/{log_name}"
             Path(h_path).parent.mkdir(parents=True, exist_ok=True)
             r_path = f"{self.job_dir}/{log_name}"
-            self.status_files.append(SshItem(h_path=h_path, r_path=r_path, ssh_config=self.ssh_config))
+            self.status_files.append(
+                SshItem(h_path=h_path, r_path=r_path, ssh_config=self.ssh_config)
+            )
 
     def _setup_scripts(self):
         job_script = self.task.job_script.split("/")[-1]
@@ -253,11 +276,42 @@ class Job:
     def cleanup(self) -> None:
         self.job_ssh_client.cmd(f"rm -rf {self.job_dir}")
 
+    def _preprocess(self, item: SshItem, transform: Callable[[str], str], staging_dir: str) -> str:
+        """Modify the item's local file content with ``transform`` and stage
+        the result in ``staging_dir`` under the original name.
+
+        Returns the staged path for _upload(). The original local file is
+        never modified.
+        """
+        with open(os.path.join(item.h_path, item.h_name), encoding="utf-8") as f:
+            content = transform(f.read())
+        os.makedirs(staging_dir, exist_ok=True)
+        staged = os.path.join(staging_dir, item.h_name)
+        with open(staged, "w", encoding="utf-8") as f:
+            f.write(content)
+        return staged
+
+    def _upload(self, item: SshItem, src: str) -> None:
+        """Generic upload: scp local file ``src`` into the item's remote dir,
+        keeping its basename."""
+        result = item.ssh.scp_to(item.r_path, src)
+        print(f"Copying {src} to {item.r_path}/{item.h_name} result: {result}")
+
     def upload_scripts(self) -> None:
         print("====> Uploading scripts for job:", self.job_name)
-        self.script.copy()
-        if self.pre_script:
-            self.pre_script.copy()
+        # one scratch dir for the staged copies; TemporaryDirectory removes it
+        # after the uploads so nothing leaks into /tmp
+        with tempfile.TemporaryDirectory(prefix="wes_upload_") as staging:
+            for item, transform in (
+                (self.script, inject_job_status),
+                (self.pre_script, inject_pre_status),
+            ):
+                if item is None:
+                    continue
+                self._upload(item, self._preprocess(item, transform, staging))
+        # the job's shell scripts create/update wes.status on the server via
+        # this helper (pre.sh before submit, job.sh while it runs)
+        self.status_file.write_helper()
 
     def _clone_repo(self) -> bool:
         git_name = self.task.git_url.split("/")[-1].replace(".git", "")
@@ -297,5 +351,4 @@ class Job:
         job_id = result[0].strip().split(";")[0] if result else ""
         if job_id and job_id not in self.task.jobs_ids:
             self.task.jobs_ids.append(job_id)
-        self.write_status(State.PENDING, job_id=job_id)
         return State.PENDING

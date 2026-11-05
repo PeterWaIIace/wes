@@ -54,6 +54,7 @@ class JobScanner:
         return Task(
             name=t["name"],
             git_url=t["git_url"],
+            wes_file=t.get("wes_file", ""),
             path=t.get("path", ""),
             ssh_config=t.get("ssh_config", self.ssh_config),
             job_script=t.get("job_script"),

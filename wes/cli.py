@@ -30,7 +30,11 @@ class WesParser:
         callback = self.callbacks.get(args.command)
         if callback:
             result = callback(args)
-            print(result)
+            if isinstance(result, list):
+                for line in result:
+                    print(line)
+            elif result is not None:
+                print(result)
         elif remaining and remaining[0].endswith(".wes"):
             WES().dispatch(remaining[0])
         else:
@@ -106,6 +110,45 @@ def main() -> None:
             {
                 "argument": "--path",
                 "help": "Remote directory to pull",
+                "required": True,
+            },
+        ],
+    )
+
+    parser.add_sub(
+        "nodes",
+        help="List cluster nodes",
+        callback=lambda args: [wes.set_ssh(args.ssh), wes.get_nodes()][1],
+        arguments=[
+            {
+                "argument": "--ssh",
+                "help": "SSH config name",
+                "required": True,
+            },
+        ],
+    )
+
+    parser.add_sub(
+        "jobs",
+        help="List jobs on the cluster",
+        callback=lambda args: [wes.set_ssh(args.ssh), wes.get_jobs()][1],
+        arguments=[
+            {
+                "argument": "--ssh",
+                "help": "SSH config name",
+                "required": True,
+            },
+        ],
+    )
+
+    parser.add_sub(
+        "capacity",
+        help="Show node capacity",
+        callback=lambda args: [wes.set_ssh(args.ssh), wes.get_capacity()][1],
+        arguments=[
+            {
+                "argument": "--ssh",
+                "help": "SSH config name",
                 "required": True,
             },
         ],

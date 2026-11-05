@@ -8,10 +8,8 @@ from wes.jobs.query import JobsQuery
 from wes.jobs.scanner import JobScanner
 from wes.parser import WESParser
 from wes.remote.runner import SshRunner
-from wes.states import State
+from wes.states import FINISHED_STATES
 from wes.utils import thread_safe
-
-_FINISHED_STATES = (State.COMPLETED, State.FAILED, State.CANCELLED)
 
 
 class User:
@@ -97,11 +95,16 @@ class Engine:
             for info in JobsQuery(ssh_conf).get():
                 infos[info.name] = info
 
+        # the job's own shell scripts write wes.status on the server; read it
+        # back instead of deriving state from squeue/sacct
+        for job in self.jobs.values():
+            job.pull_status()
+
         # squeue only knows about live jobs, ask sacct for the ones that ended
         unfinished = {
             job.job_name
             for job in self.jobs.values()
-            if job.job_name not in infos and job.status.state not in _FINISHED_STATES
+            if job.job_name not in infos and job.status.state not in FINISHED_STATES
         }
         if unfinished:
             for ssh_conf, user in self.current_users.items():

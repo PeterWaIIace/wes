@@ -15,6 +15,10 @@ class WES:
         self.ssh = ssh
         self.cluster = Cluster(ssh) if ssh else None
 
+    def set_ssh(self, ssh):
+        self.ssh = ssh
+        self.cluster = Cluster(ssh)
+
     def get_nodes(self) -> list:
         return [n.info for n in self.cluster.get_nodes()]
 
@@ -24,13 +28,12 @@ class WES:
     def get_capacity(self) -> list[NodeCapacity]:
         return self.cluster.get_capacity()
 
-    def set_ssh(self, ssh):
-        self.ssh = ssh
-        self.cluster = Cluster(ssh)
-
     def dispatch(self, config) -> None:
         engine = Engine()
         engine.start_jobs(task_file=config)
+
+    def get_job_status(self):
+        pass
 
     def pull(self, pull_dir) -> list:
         SshItem(pull_dir, pull_dir, self.ssh).sync()

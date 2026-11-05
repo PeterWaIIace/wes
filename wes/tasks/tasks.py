@@ -31,9 +31,11 @@ class Task:
         memory: str = "",
         time: str = "",
         nodelist: str = "",
+        wes_file: str = "",
     ) -> None:
         self.name = name
         self.ssh_config = ssh_config
+        self.wes_file = wes_file
         self.git_url = git_url
         self.branch = branch
         self.path = path

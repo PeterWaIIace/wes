@@ -102,6 +102,7 @@ class JobCache:
     def task_to_cache_data(task: Task) -> dict:
         return {
             "task_name": task.name,
+            "wes_file": task.wes_file,
             "state": task.status.value,
             "jobs_ids": task.jobs_ids,
             "git_url": task.git_url,
@@ -125,6 +126,7 @@ class JobCache:
         return Task(
             name=name,
             git_url=data.get("git_url", ""),
+            wes_file=data.get("wes_file", ""),
             branch=data.get("branch", ""),
             path=data.get("path", "."),
             ssh_config=data.get("ssh", ""),

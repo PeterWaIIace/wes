@@ -71,7 +71,10 @@ class WESParser:
         else:
             raise ConfigError("'sequence' must be a list or mapping of tasks")
 
-        return [self._process_task(t) for t in tasks_data]
+        tasks = [self._process_task(t) for t in tasks_data]
+        for task in tasks:
+            task.wes_file = str(path)
+        return tasks
 
     def _process_task(self, task_data: dict) -> Task:
         name = task_data.get("name", "Unnamed Task")
