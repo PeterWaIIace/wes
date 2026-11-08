@@ -6,7 +6,7 @@ STATUS_HELPER_NAME = "wes_status.sh"
 # create/update wes.status in their working directory, which is the job dir.
 STATUS_HELPER_SCRIPT = """#!/bin/bash
 # wes_status.sh STATE [MESSAGE]
-# Create or update wes.status in the current directory (atomic replace).
+# Create or update wes.status (YAML) in the current directory (atomic replace).
 # task/namespace/job_name/ssh are read from *_config.json the first time the
 # file is created; SLURM_* variables fill job_id/node/partition when present.
 set -u
@@ -20,25 +20,36 @@ json_get() {
     awk -F'"' -v k="$2" '$2 == k { print $4; exit }' "$1" 2>/dev/null
 }
 
+yaml_kv() {
+    # yaml_kv KEY VALUE - print one flat mapping entry, value double-quoted
+    # with \\ and " escaped and newlines/tabs folded to spaces
+    local v=${2//\\/\\\\}
+    v=${v//\\"/\\\"}
+    v=${v//$'\\n'/ }
+    v=${v//$'\\r'/ }
+    v=${v//$'\\t'/ }
+    printf '%s: "%s"\\n' "$1" "$v"
+}
+
 {
     if [ -f "$status" ]; then
-        grep -vE '^(state|updated|job_id|node|partition|message)=' "$status" || true
+        grep -vE '^(state|updated|job_id|node|partition|message)[:=]' "$status" || true
     else
         cfg="$(ls ./*_config.json 2>/dev/null | head -n 1)"
         if [ -n "$cfg" ]; then
-            echo "task=$(json_get "$cfg" name)"
-            echo "namespace=$(json_get "$cfg" namespace)"
-            echo "job_name=$(json_get "$cfg" job_name)"
-            echo "ssh=$(json_get "$cfg" ssh_config)"
-            echo "wes_file=$(json_get "$cfg" wes_file)"
+            yaml_kv task "$(json_get "$cfg" name)"
+            yaml_kv namespace "$(json_get "$cfg" namespace)"
+            yaml_kv job_name "$(json_get "$cfg" job_name)"
+            yaml_kv ssh "$(json_get "$cfg" ssh_config)"
+            yaml_kv wes_file "$(json_get "$cfg" wes_file)"
         fi
     fi
-    echo "state=${state}"
-    echo "updated=$(date '+%Y-%m-%d %H:%M:%S')"
-    if [ -n "${SLURM_JOB_ID:-}" ]; then echo "job_id=${SLURM_JOB_ID}"; fi
-    if [ -n "${SLURM_NODELIST:-}" ]; then echo "node=${SLURM_NODELIST}"; fi
-    if [ -n "${SLURM_JOB_PARTITION:-}" ]; then echo "partition=${SLURM_JOB_PARTITION}"; fi
-    if [ -n "$message" ]; then echo "message=${message}"; fi
+    yaml_kv state "$state"
+    yaml_kv updated "$(date '+%Y-%m-%d %H:%M:%S')"
+    if [ -n "${SLURM_JOB_ID:-}" ]; then yaml_kv job_id "$SLURM_JOB_ID"; fi
+    if [ -n "${SLURM_NODELIST:-}" ]; then yaml_kv node "$SLURM_NODELIST"; fi
+    if [ -n "${SLURM_JOB_PARTITION:-}" ]; then yaml_kv partition "$SLURM_JOB_PARTITION"; fi
+    if [ -n "$message" ]; then yaml_kv message "$message"; fi
 } > "$tmp" && mv "$tmp" "$status"
 """
 

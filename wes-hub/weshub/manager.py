@@ -13,6 +13,7 @@ long-lived server), so dispatch is orchestrated here over ``WESParser`` +
 from __future__ import annotations
 
 import dataclasses
+import shlex
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -29,6 +30,7 @@ from wes.tasks.tasks import Task
 
 from weshub.config import Settings
 from weshub.cron import Cron, CronError
+from weshub.discovery import find_status_dirs
 from weshub.store import Store
 
 
@@ -64,12 +66,21 @@ class DiscoveredJob:
     found config and the real job directory (see TODO.md, wes-upstream).
     """
 
-    def __init__(self, task: Task, ssh_config: str, namespace: str, job_name: str):
+    def __init__(
+        self,
+        task: Task,
+        ssh_config: str,
+        namespace: str,
+        job_name: str,
+        job_dir: str | None = None,
+    ):
         self.task = task
         self.ssh_config = ssh_config
         self.namespace = namespace
         self.job_name = job_name
-        self.job_dir = f"{task.name}/{namespace}"
+        # path-based discovery finds job dirs anywhere on the cluster, not
+        # just at the default <task>/<namespace> layout
+        self.job_dir = job_dir or f"{task.name}/{namespace}"
         git_name = task.git_url.split("/")[-1].replace(".git", "")
         self.repo_dir = f"{self.job_dir}/{git_name}"
         self.status_file = StatusFile(self.job_dir, ssh_config)
@@ -337,9 +348,73 @@ class Hub:
             discovered=int(rec.discovered),
         )
 
-    def discover(self, ssh: str) -> list[str]:
-        """Job discovery: find *_config.json files on the cluster and adopt jobs."""
+    def discover(self, ssh: str, path: str | None = None) -> list[str]:
+        """Job discovery: adopt jobs found on the cluster.
+
+        With ``path``, recursively search that remote dir for ``wes.status``
+        files - only non-hidden entries are entered, and a dir containing a
+        status file is adopted and not descended into. Without ``path``,
+        fall back to the ``*_config.json`` scan under the remote workdir.
+        """
+        if path:
+            return self._bounded(self._discover_path, ssh, path) or []
         return self._bounded(self._discover, ssh) or []
+
+    def _discover_path(self, ssh: str, path: str) -> list[str]:
+        """Status-file discovery: adopt jobs whose dir under `path` holds wes.status."""
+        scanner = JobScanner(ssh)
+        try:
+            job_dirs = find_status_dirs(scanner.runner, path)
+        except Exception as e:  # noqa: BLE001
+            print(f"[hub] status discovery on {ssh}:{path} failed: {e}")
+            return []
+        known = set(self.registry)
+        adopted = []
+        for job_dir in job_dirs:
+            try:
+                status = StatusFile(job_dir, ssh).read()
+                if not status or not status.namespace or status.namespace in known:
+                    continue
+                task = self._task_for_dir(scanner, job_dir, status, ssh)
+                job = DiscoveredJob(
+                    task,
+                    status.ssh or ssh,
+                    status.namespace,
+                    status.job_name or status.namespace,
+                    job_dir=job_dir,
+                )
+                job.status = status
+            except Exception as e:  # noqa: BLE001
+                print(f"[hub] skipping broken status dir {job_dir}: {e}")
+                continue
+            known.add(status.namespace)
+            existing = self.store.get_job(status.namespace)
+            rec = JobRecord(
+                job,
+                existing["run_id"] if existing else None,
+                existing["pipeline_id"] if existing else None,
+                discovered=True,
+            )
+            self._register(job, rec)
+            # the status was just read over ssh - store it without re-reading
+            self._store_status(rec, status)
+            adopted.append(status.namespace)
+        return adopted
+
+    def _task_for_dir(self, scanner: JobScanner, job_dir: str, status: JobStatus, ssh: str) -> Task:
+        """Full task spec if the job dir carries a *_config.json, else a minimal one."""
+        ok, lines = scanner.runner.run_command(
+            f"find {shlex.quote(job_dir)} -maxdepth 1 -name '*_config.json'"
+        )
+        if ok and lines:
+            config = scanner._read_config(lines[0])
+            if config:
+                task = scanner._config_to_task(config)
+                if not task.ssh_config:
+                    task.ssh_config = ssh
+                return task
+        name = status.task or job_dir.rstrip("/").split("/")[-1]
+        return Task(name=name, git_url="", ssh_config=ssh)
 
     def _discover(self, ssh: str) -> list[str]:
         """Job discovery: adopt jobs from *_config.json on the cluster."""
@@ -418,6 +493,19 @@ class Hub:
             raise HubError(f"pull timed out for {namespace}")
         return self.store.get_job(namespace)
 
+    def _store_status(self, rec: JobRecord, st) -> None:
+        value = st.state.value if hasattr(st.state, "value") else str(st.state)
+        rec.last_state = value
+        self.store.set_job_state(
+            rec.job.namespace,
+            value,
+            job_id=st.job_id,
+            node=st.node,
+            partition=st.partition,
+            message=st.message,
+            updated=st.updated or "",
+        )
+
     def _sync_job_status(self, rec: JobRecord) -> None:
         job = rec.job
         try:
@@ -428,17 +516,7 @@ class Hub:
         st = job.status
         if not st or not st.state:
             return
-        value = st.state.value if hasattr(st.state, "value") else str(st.state)
-        rec.last_state = value
-        self.store.set_job_state(
-            job.namespace,
-            value,
-            job_id=st.job_id,
-            node=st.node,
-            partition=st.partition,
-            message=st.message,
-            updated=st.updated or "",
-        )
+        self._store_status(rec, st)
 
     def _refresh_cluster(self, ssh: str, max_age: float = 30.0) -> None:
         import time as _time

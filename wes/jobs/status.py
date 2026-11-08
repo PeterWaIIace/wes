@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+import yaml
+
 from wes.jobs.status_sh_scripts import (
     JOB_STATUS_SNIPPET,
     PRE_STATUS_SNIPPET,
@@ -82,9 +84,21 @@ def now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _parse_key_value(text: str) -> dict[str, str]:
+    """Parse the legacy ``key=value`` wes.status format (pre-YAML files)."""
+    data: dict[str, str] = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        data[key.strip()] = value.strip()
+    return data
+
+
 @dataclass
 class JobStatus:
-    """Plain key=value status of a single scheduled task, kept on the server."""
+    """YAML status of a single scheduled task, kept on the server as wes.status."""
 
     task: str
     namespace: str
@@ -99,45 +113,42 @@ class JobStatus:
     message: str = ""
 
     def to_text(self) -> str:
-        lines = [
-            f"task={self.task}",
-            f"namespace={self.namespace}",
-            f"job_name={self.job_name}",
-            f"ssh={self.ssh}",
-            f"state={self.state.value}",
-            f"updated={self.updated}",
-        ]
+        data = {
+            "task": self.task,
+            "namespace": self.namespace,
+            "job_name": self.job_name,
+            "ssh": self.ssh,
+            "state": self.state.value,
+            "updated": self.updated,
+        }
         for key in ("wes_file", "job_id", "node", "partition", "message"):
             value = getattr(self, key)
             if value:
-                lines.append(f"{key}={value}")
-        return "\n".join(lines) + "\n"
+                data[key] = value
+        return yaml.safe_dump(data, sort_keys=False)
 
     @classmethod
     def from_text(cls, text: str) -> JobStatus:
-        data: dict[str, str] = {}
-        for line in (text or "").splitlines():
-            line = line.strip()
-            if not line or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            data[key.strip()] = value.strip()
+        data = yaml.safe_load(text or "")
+        if not isinstance(data, dict):
+            # not YAML (empty file or legacy key=value) - fall back to key=value
+            data = _parse_key_value(text or "")
         try:
-            state = State(data.get("state", State.PENDING.value))
+            state = State(str(data.get("state") or State.PENDING.value))
         except ValueError:
             state = State.PENDING
         return cls(
-            task=data.get("task", ""),
-            namespace=data.get("namespace", ""),
-            job_name=data.get("job_name", ""),
-            ssh=data.get("ssh", ""),
-            wes_file=data.get("wes_file", ""),
+            task=str(data.get("task") or ""),
+            namespace=str(data.get("namespace") or ""),
+            job_name=str(data.get("job_name") or ""),
+            ssh=str(data.get("ssh") or ""),
+            wes_file=str(data.get("wes_file") or ""),
             state=state,
-            job_id=data.get("job_id", ""),
-            node=data.get("node", ""),
-            partition=data.get("partition", ""),
-            updated=data.get("updated", ""),
-            message=data.get("message", ""),
+            job_id=str(data.get("job_id") or ""),
+            node=str(data.get("node") or ""),
+            partition=str(data.get("partition") or ""),
+            updated=str(data.get("updated") or ""),
+            message=str(data.get("message") or ""),
         )
 
 

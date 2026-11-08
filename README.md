@@ -54,7 +54,7 @@ See `task.wes` for a working example.
 
 ## Job status on the server
 
-Every scheduled task writes a `wes.status` file into its remote job directory
+Every scheduled task writes a `wes.status` YAML file into its remote job directory
 (`<task>/<namespace>/wes.status`), updated by `wes sync` whenever the SLURM state changes:
 
 ```bash
@@ -62,15 +62,15 @@ ssh hpc 'cat <task>/<namespace>/wes.status'
 ```
 
 ```
-task=ncpu_alu
-namespace=ncpu_alu_20260922101030_ab12
-job_name=ncpu_alu_ncpu_alu_20260922101030_ab12
-ssh=hpc
-state=RUNNING
-updated=2026-09-22 10:15:02
-job_id=4242
-node=h86
-partition=gpu
+task: ncpu_alu
+namespace: ncpu_alu_20260922101030_ab12
+job_name: ncpu_alu_ncpu_alu_20260922101030_ab12
+ssh: hpc
+state: RUNNING
+updated: '2026-09-22 10:15:02'
+job_id: '4242'
+node: h86
+partition: gpu
 ```
 
 States: `PENDING` (submitted), `RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`.

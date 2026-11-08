@@ -24,7 +24,24 @@ def main() -> None:
         "--mock", action="store_true", help="Run against a local mock cluster (no ssh/SLURM)"
     )
 
+    disc = sub.add_parser("discover", help="Run job discovery once against a cluster and exit")
+    disc.add_argument("--ssh", required=True, help="SSH config name (see ~/.ssh/config)")
+    disc.add_argument(
+        "--path",
+        default="",
+        help="Remote dir to search recursively for wes.status files "
+        "(non-hidden entries only, no descent past a found status file). "
+        "Default: scan for *_config.json under the remote workdir",
+    )
+    disc.add_argument("--data-dir", default="./data")
+    disc.add_argument(
+        "--mock", action="store_true", help="Run against a local mock cluster (no ssh/SLURM)"
+    )
+
     args = parser.parse_args()
+    if args.command == "discover":
+        _discover_once(args)
+        return
     if args.command != "serve":
         parser.print_help()
         return
@@ -65,6 +82,36 @@ def main() -> None:
             )
 
     uvicorn.run(app, host=settings.host, port=settings.port)
+
+
+def _discover_once(args) -> None:
+    settings = Settings(data_dir=Path(os.path.abspath(args.data_dir)))
+    settings.ensure_dirs()
+
+    if args.mock:
+        from weshub import mock
+
+        mock.setup(settings)
+        mock.activate()
+
+    # WES resolves the artifact "results/..." prefix against the process CWD
+    os.chdir(settings.data_dir)
+
+    from weshub.manager import Hub
+
+    hub = Hub(settings)
+    try:
+        adopted = hub.discover(args.ssh, args.path or None)
+    finally:
+        hub.stop()
+
+    where = f"{args.ssh}:{args.path or '.'}"
+    if adopted:
+        print(f"adopted {len(adopted)} job(s) from {where}")
+        for ns in adopted:
+            print(f"  {ns}")
+    else:
+        print(f"no new jobs found on {where}")
 
 
 if __name__ == "__main__":

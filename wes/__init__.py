@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import os
 import signal
 import time
+
+import yaml
 
 from wes.cluster import Cluster
 from wes.clusters.node import NodeCapacity
 from wes.engine import Engine
-from wes.jobs.job import JobInfo, SshItem
+from wes.jobs.job import JobInfo, SshItem, STATUS_FILENAME
 from wes.jobs.scanner import JobScanner
-
+from wes.remote.runner import SshRunner
 
 class WES:
     def __init__(self, ssh: str | None = None):
@@ -60,3 +63,28 @@ class WES:
 
     def ls(self, lsdir=None, recursive=False, depth=None) -> list:
         return JobScanner(self.ssh).list_dir(lsdir, recursive=recursive, depth=depth)
+
+    def check(self, rootdir="."):
+        statuses = []
+        dirs_to_discover = [rootdir]
+        while dirs_to_discover:
+            current_dir = dirs_to_discover.pop()
+            results = JobScanner(self.ssh).list_dir(current_dir, recursive=False, depth=1)
+
+            status_paths = [p for p in results if os.path.basename(p) == STATUS_FILENAME]
+            if status_paths:
+                # current_dir directly holds wes.status: it is a job dir, read
+                # the status and do not descend into it (find -prune semantics)
+                for path in status_paths:
+                    ok, lines = SshRunner(self.ssh).run_command(f"cat {path}")
+                    if ok and lines:
+                        data = yaml.safe_load("\n".join(lines))
+                        if data:
+                            statuses.append(data)
+                continue
+
+            for path in results:
+                if any(part.startswith(".") and len(part) > 1 for part in path.split("/")):
+                    continue
+                dirs_to_discover.append(path)
+        return statuses

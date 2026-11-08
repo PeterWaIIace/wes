@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 import pytest
+import yaml
 
 from weshub import mock as weshub_mock
 from weshub.config import Settings
@@ -96,9 +97,7 @@ def test_mock_status_file_matches_wes_protocol(mock_hub):
     cluster = Path(weshub_mock.mock_config()["cluster_dir"])
     status_files = list(cluster.rglob("wes.status"))
     assert status_files
-    fields = dict(
-        line.split("=", 1) for line in status_files[0].read_text().splitlines() if "=" in line
-    )
+    fields = yaml.safe_load(status_files[0].read_text())
     assert fields["state"] == "COMPLETED"
     assert fields["namespace"]
     assert fields["job_id"]

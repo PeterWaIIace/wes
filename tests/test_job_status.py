@@ -4,6 +4,8 @@ import json
 import os
 from unittest.mock import MagicMock, patch
 
+import yaml
+
 from wes.jobs.job import Job, JobInfo
 from wes.jobs.status import (
     STATUS_FILENAME,
@@ -83,16 +85,16 @@ def test_status_roundtrip() -> None:
     assert parsed == status
 
 
-def test_status_text_omits_empty_fields() -> None:
+def test_status_text_is_yaml_and_omits_empty_fields() -> None:
     text = JobStatus(task="t", namespace="n", job_name="j", ssh="hpc", updated="now").to_text()
-    assert text.splitlines() == [
-        "task=t",
-        "namespace=n",
-        "job_name=j",
-        "ssh=hpc",
-        "state=PENDING",
-        "updated=now",
-    ]
+    assert yaml.safe_load(text) == {
+        "task": "t",
+        "namespace": "n",
+        "job_name": "j",
+        "ssh": "hpc",
+        "state": "PENDING",
+        "updated": "now",
+    }
 
 
 def test_status_roundtrip_with_wes_file() -> None:
@@ -106,14 +108,24 @@ def test_status_roundtrip_with_wes_file() -> None:
         updated="2026-09-22 10:00:00",
     )
     text = status.to_text()
-    assert "task=my_task" in text
-    assert "wes_file=ncpu_adder.wes" in text
+    assert "task: my_task" in text
+    assert "wes_file: ncpu_adder.wes" in text
     assert JobStatus.from_text(text) == status
 
 
 def test_status_from_text_unknown_state_is_pending() -> None:
-    parsed = JobStatus.from_text("state=WAT")
+    parsed = JobStatus.from_text("state: WAT")
     assert parsed.state is State.PENDING
+
+
+def test_status_from_text_legacy_key_value_still_parses() -> None:
+    parsed = JobStatus.from_text(
+        "task=t\nnamespace=n\njob_name=j\nssh=hpc\nstate=RUNNING\njob_id=4242\n"
+        "updated=2026-09-22 10:00:00\n"
+    )
+    assert parsed.task == "t"
+    assert parsed.state is State.RUNNING
+    assert parsed.job_id == "4242"
 
 
 def test_slurm_state_mapping() -> None:
@@ -135,7 +147,8 @@ def test_status_file_writes_atomically(monkeypatch) -> None:
     cmd = runner.run_command.call_args.args[0]
     tmp = f"{STATUS_FILENAME}.tmp"
     assert cmd == f"cd task/ns && cat > {tmp} && mv {tmp} {STATUS_FILENAME}"
-    assert runner.run_command.call_args.kwargs["script"].startswith("task=t")
+    script = runner.run_command.call_args.kwargs["script"]
+    assert yaml.safe_load(script)["task"] == "t"
 
 
 def test_status_file_read_returns_none_when_missing() -> None:
@@ -274,15 +287,15 @@ def test_set_info_does_not_touch_status_file(monkeypatch, tmp_path) -> None:
 def test_pull_status_reads_script_written_file(monkeypatch, tmp_path) -> None:
     job, runner = _job(monkeypatch, tmp_path)
     remote_lines = [
-        "task=my_task",
-        f"namespace={job.namespace}",
-        f"job_name={job.job_name}",
-        "ssh=hpc",
-        "state=RUNNING",
-        "updated=2026-09-22 10:00:00",
-        "job_id=4242",
-        "node=h86",
-        "partition=gpu-l",
+        "task: my_task",
+        f"namespace: {job.namespace}",
+        f"job_name: {job.job_name}",
+        "ssh: hpc",
+        "state: RUNNING",
+        "updated: '2026-09-22 10:00:00'",
+        "job_id: '4242'",
+        "node: h86",
+        "partition: gpu-l",
     ]
 
     def _run_remote(cmd: str, script: str | None = None, **kw):

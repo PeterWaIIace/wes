@@ -130,8 +130,11 @@ def pull_job(namespace: str):
 
 
 @router.post("/discovery/{ssh}")
-def run_discovery(ssh: str):
-    return {"adopted": get_hub().discover(ssh)}
+def run_discovery(ssh: str, path: str | None = None):
+    """Adopt jobs on the cluster. With ``path``, recursively search that remote
+    dir for wes.status files (non-hidden only, no descent past a found status
+    file); without it, scan for *_config.json under the remote workdir."""
+    return {"adopted": get_hub().discover(ssh, path)}
 
 
 @router.get("/clusters")

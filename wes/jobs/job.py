@@ -71,7 +71,6 @@ class SshItem(MirrorItem):
                 f" -> {self.h_path}/{self.h_name}"
             )
 
-
 class JobConfig(SshItem):
     def __init__(self, job: Job, task: Task, r_path: str, ssh_config: str):
         self.task = task

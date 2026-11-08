@@ -22,7 +22,11 @@ as a library - the `wes` package is never modified.
 - **Scheduling**: each pipeline can carry a cron expression; due pipelines are
   dispatched automatically (`manual` dispatch also available from the UI/API).
 - **Job discovery**: scans `*_config.json` on the cluster (same protocol the
-  `wes` CLI uses) and adopts jobs it did not dispatch itself.
+  `wes` CLI uses) and adopts jobs it did not dispatch itself. A path-based
+  variant searches any remote dir recursively for `wes.status` files - only
+  non-hidden entries are entered, and a dir containing a status file is
+  adopted without descending further into it (`POST /api/discovery/{ssh}?path=...`
+  or `wes-hub discover --ssh ... --path ...`).
 - **Status**: follows the `wes.status` protocol written by the job scripts on
   the server; no extra per-job logic on the cluster.
 - **Results**: when a job reaches a finished state, artifacts and logs are
@@ -87,6 +91,7 @@ Gotchas the mock surfaced (also apply to real pipelines, see TODO.md):
 | `GET /api/runs` / `GET /api/runs/{id}` | runs with job states |
 | `GET /api/jobs` | every known job (dispatched + discovered) |
 | `POST /api/jobs/{namespace}/pull` | pull artifacts/logs on demand |
+| `POST /api/discovery/{ssh}?path=...` | adopt jobs; with `path`, recursive `wes.status` search under that remote dir |
 | `GET /api/clusters` | nodes, capacity, squeue snapshot |
 | `GET /api/state` | combined snapshot (used by the UI poll loop) |
 | `/results/*` | downloaded artifacts (static) |

@@ -59,6 +59,19 @@ def main() -> None:
     )
 
     parser.add_sub(
+        "check",
+        help="One time job discovery and check. It uses wes to find wes status files on the remote and return its state.",
+        callback= lambda args : [wes.set_ssh(args.ssh), wes.check()][1],
+        arguments=[
+            {
+                "argument": "--ssh",
+                "help": "SSH config name",
+                "required": True,
+            },
+        ],
+    )
+
+    parser.add_sub(
         "sync",
         help="One time sync job status for an SSH config",
         callback= lambda args : [wes.set_ssh(args.ssh), wes.sync()][1],
