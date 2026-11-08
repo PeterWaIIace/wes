@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import shlex
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -45,10 +46,10 @@ class MirrorItem:
         self.r_name = r_path.split("/")[-1]
 
     def copy(self):
-        pass
+        raise NotImplementedError("copy() must be implemented in subclasses")
 
     def sync(self):
-        pass
+        raise NotImplementedError("sync() must be implemented in subclasses")
 
 
 class SshItem(MirrorItem):
@@ -75,11 +76,11 @@ class JobConfig(SshItem):
     def __init__(self, job: Job, task: Task, r_path: str, ssh_config: str):
         self.task = task
         self.job = job
-        self.h_path = f"results/{self.job.job_name}/{self.task.name}_config.json"
-        self._save_job_config_json()
-        super().__init__(str(self.h_path), r_path, ssh_config)
+        h_file = f"results/{self.job.job_name}/{self.task.name}_config.json"
+        self._save_job_config_json(h_file)
+        super().__init__(h_file, r_path, ssh_config)
 
-    def _save_job_config_json(self):
+    def _save_job_config_json(self, h_file: str):
         config = {
             "job": {
                 "namespace": self.job.namespace,
@@ -106,8 +107,8 @@ class JobConfig(SshItem):
             },
         }
 
-        Path(self.h_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(self.h_path, "w") as f:
+        Path(h_file).parent.mkdir(parents=True, exist_ok=True)
+        with open(h_file, "w") as f:
             json.dump(config, f, indent=4)
 
 
@@ -122,12 +123,11 @@ class ClientItem:
 class ClientSsh(ClientItem):
     def __init__(self, job_path: str, ssh_config: str):
         self.ssh = SshRunner(ssh_config)
-        self.ssh.create_dir(job_path)
         super().__init__(job_path)
 
     def cmd(self, cmd, retries: int = 0):
         if self.job_path:
-            cmd = f"cd {self.job_path} && {cmd}"
+            cmd = f"cd {shlex.quote(self.job_path)} && {cmd}"
 
         ok, result = self.ssh.run_command(cmd, retries=retries)
         return ok, result
@@ -138,7 +138,10 @@ class Job:
         self.ssh_config = ssh_config
 
         self.task = task
-        self.namespace = (
+        # a namespace passed in (e.g. by JobScanner from the remote config)
+        # keeps the job's identity stable across discovery; only generate a
+        # fresh one for newly dispatched jobs
+        self.namespace = namespace or (
             f"{self.task.name}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(2)}"
         )
         self.job_name = f"{self.task.name}_{self.namespace}"
@@ -262,15 +265,15 @@ class Job:
         self.pre_script = SshItem(h_path=h_path, r_path=r_path, ssh_config=self.ssh_config)
 
     def _setup_job_config(self):
-        print(f"{self.job_dir}/{self.task.name}_config.json")
+        # only builds the local config file; the remote copy happens in
+        # upload_scripts() so constructing a Job has no remote side effects
         self.job_conf = JobConfig(
             self, self.task, f"{self.job_dir}/{self.task.name}_config.json", self.ssh_config
         )
-        self.job_conf.copy()
 
     def sync(self) -> None:
-        for artifact in self.artifacts:
-            artifact.sync()
+        for item in (*self.artifacts, *self.status_files):
+            item.sync()
 
     def cleanup(self) -> None:
         self.job_ssh_client.cmd(f"rm -rf {self.job_dir}")
@@ -298,6 +301,10 @@ class Job:
 
     def upload_scripts(self) -> None:
         print("====> Uploading scripts for job:", self.job_name)
+        # create the remote job dir and push the config file; kept here so
+        # that discovering a Job (JobScanner) never writes to the server
+        self.job_ssh_client.ssh.create_dir(self.job_dir)
+        self.job_conf.copy()
         # one scratch dir for the staged copies; TemporaryDirectory removes it
         # after the uploads so nothing leaks into /tmp
         with tempfile.TemporaryDirectory(prefix="wes_upload_") as staging:
@@ -330,7 +337,6 @@ class Job:
             return State.FAILED
 
         if self.pre_script:
-            ok, result = self.job_ssh_client.cmd("ls .")
             ok, result = self.job_ssh_client.cmd(f"./{self.pre_script.r_name}")
             print(f"Pre-script output:\n{result}")
             if not ok:
@@ -339,6 +345,18 @@ class Job:
                 return State.FAILED
 
         sbatch_cmd = f"sbatch --parsable --job-name={self.job_name}"
+        if self.task.partition:
+            sbatch_cmd += f" --partition={self.task.partition}"
+        if self.task.cpus:
+            sbatch_cmd += f" --cpus-per-task={self.task.cpus}"
+        if self.task.gpus:
+            sbatch_cmd += f" --gpus={self.task.gpus}"
+        if self.task.memory:
+            sbatch_cmd += f" --mem={self.task.memory}"
+        if self.task.time:
+            sbatch_cmd += f" --time={self.task.time}"
+        if self.task.nodelist:
+            sbatch_cmd += f" --nodelist={self.task.nodelist}"
         sbatch_cmd += f" ./{self.script.r_name}"
 
         ok, result = self.job_ssh_client.cmd(sbatch_cmd, retries=3)

@@ -18,12 +18,14 @@ class JobScanner:
         lsdir: str | None = None,
         recursive: bool = False,
         depth: int | None = None,
+        dirs_only: bool = False,
     ) -> list[str]:
         target = lsdir if lsdir is not None else self.base_dir
+        type_filter = " -type d" if dirs_only else ""
         if not recursive:
-            cmd = f"find {target} -mindepth 1 -maxdepth {depth or 1}"
+            cmd = f"find {target} -mindepth 1 -maxdepth {depth or 1}{type_filter}"
         else:
-            cmd = f"find {target}"
+            cmd = f"find {target}{type_filter}"
             if depth is not None:
                 cmd += f" -maxdepth {depth}"
 
@@ -58,6 +60,7 @@ class JobScanner:
             path=t.get("path", ""),
             ssh_config=t.get("ssh_config", self.ssh_config),
             job_script=t.get("job_script"),
+            pre_script=t.get("pre_script"),
             branch=t.get("branch", ""),
             cleanup=t.get("cleanup", False),
             artifacts=t.get("artifacts", []),

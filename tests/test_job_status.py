@@ -440,3 +440,77 @@ def test_upload_scripts_preprocesses_pre_script(monkeypatch, tmp_path) -> None:
     assert f"./{STATUS_HELPER_NAME} PENDING" in uploaded["pre.sh"]
     assert "module load uv" in uploaded["pre.sh"]
     assert (tmp_path / "pre.sh").read_text() == "module load uv\n"
+
+
+def test_job_honors_namespace_argument(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    runner_cls = MagicMock()
+    monkeypatch.setattr("wes.jobs.job.SshRunner", runner_cls)
+    monkeypatch.setattr("wes.jobs.status.SshRunner", runner_cls)
+
+    job = Job(_task(), "hpc", namespace="ns_20260101_ab12")
+
+    assert job.namespace == "ns_20260101_ab12"
+    assert job.job_name == "my_task_ns_20260101_ab12"
+    assert job.job_dir == "my_task/ns_20260101_ab12"
+    assert job.status.namespace == "ns_20260101_ab12"
+
+
+def test_job_construction_has_no_remote_side_effects(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    runner_cls = MagicMock()
+    monkeypatch.setattr("wes.jobs.job.SshRunner", runner_cls)
+    monkeypatch.setattr("wes.jobs.status.SshRunner", runner_cls)
+    runner = runner_cls.return_value
+    runner.run_command.side_effect = _run
+
+    job = Job(_task(), "hpc")
+
+    # discovery (JobScanner) constructs Jobs: it must not touch the server
+    assert runner.run_command.call_args_list == []
+    assert runner.create_dir.call_args_list == []
+    assert runner.scp_to.call_args_list == []
+    assert runner.scp_from.call_args_list == []
+
+    # the remote dir and config upload happen in upload_scripts() instead
+    (tmp_path / "job.sh").write_text(SAMPLE_JOB_SH)
+    job.upload_scripts()
+    assert runner.create_dir.call_args.args[0] == job.job_dir
+    assert runner.scp_to.call_args_list  # config + job.sh
+
+
+def test_execute_job_passes_resource_flags_to_sbatch(monkeypatch, tmp_path) -> None:
+    task = _task()
+    task.partition = "gpu"
+    task.cpus = "4"
+    task.gpus = "1"
+    task.memory = "16G"
+    task.time = "02:00:00"
+    task.nodelist = "h86"
+    job, runner = _job(monkeypatch, tmp_path, task=task)
+
+    assert job.execute_job() is State.PENDING
+    sbatch_cmd = next(c for c in _cmds(runner) if "sbatch" in c)
+    for flag in (
+        "--partition=gpu",
+        "--cpus-per-task=4",
+        "--gpus=1",
+        "--mem=16G",
+        "--time=02:00:00",
+        "--nodelist=h86",
+    ):
+        assert flag in sbatch_cmd
+
+
+def test_sync_pulls_status_files_too(monkeypatch, tmp_path) -> None:
+    job, runner = _job(monkeypatch, tmp_path)
+    pulled = []
+    runner.scp_from.side_effect = (
+        lambda r_path, tfile, cfile, r=False: pulled.append(f"{r_path}/{tfile}") or True
+    )
+
+    job.sync()
+
+    assert f"{job.job_dir}/{STATUS_FILENAME}" in pulled
+    assert f"{job.job_dir}/job_output.txt" in pulled
+    assert f"{job.job_dir}/job_error.txt" in pulled

@@ -25,6 +25,7 @@ class Engine:
         self.job_scanners = {}
         self.jobs = {}
         self.run = True
+        self.scan_interval = 5.0
         self._cleaned: set[str] = set()
 
         self.engine_lock = Lock()
@@ -36,10 +37,15 @@ class Engine:
     def __sync_thread(self):
         try:
             while self.run:
-                self.sync_jobs()
-                self.cleanup_jobs()
-                self.scan_jobs()
-                self.scan_slurm_info()
+                try:
+                    self.sync_jobs()
+                    self.cleanup_jobs()
+                    self.scan_jobs()
+                    self.scan_slurm_info()
+                except Exception as e:
+                    # one bad iteration (e.g. ssh hiccup) must not kill the loop
+                    print(f"sync iteration failed: {e}")
+                time.sleep(self.scan_interval)
         finally:
             print("Sync thread exiting...")
 
@@ -70,13 +76,16 @@ class Engine:
 
     @thread_safe("engine_lock")
     def cleanup_jobs(self):
+        finished = ("COMPLETED", "FAILED", "CANCELLED")
         for ns, job in list(self.jobs.items()):
             if ns in self._cleaned:
                 continue
-            if not job.info or not job.task.cleanup_git:
+            if not job.task.cleanup_git:
                 continue
-            if job.info.state in ("COMPLETED", "FAILED", "CANCELLED"):
-                print(f"Cleaning up remote files for {job.job_name} ({job.info.state})")
+            # squeue/sacct info when available, otherwise the pulled wes.status
+            state = job.info.state if job.info else job.status.state.value
+            if state in finished:
+                print(f"Cleaning up remote files for {job.job_name} ({state})")
                 job.cleanup()
                 self._cleaned.add(ns)
 

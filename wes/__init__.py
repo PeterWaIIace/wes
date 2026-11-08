@@ -83,7 +83,10 @@ class WES:
                             statuses.append(data)
                 continue
 
-            for path in results:
+            # descend into subdirectories only; plain files (other than
+            # wes.status, handled above) would just waste a find per entry
+            subdirs = JobScanner(self.ssh).list_dir(current_dir, recursive=False, depth=1, dirs_only=True)
+            for path in subdirs:
                 if any(part.startswith(".") and len(part) > 1 for part in path.split("/")):
                     continue
                 dirs_to_discover.append(path)
