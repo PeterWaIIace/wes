@@ -20,7 +20,7 @@ class SshRunner:
         return lines[0].strip()
 
     def _ssh_run(
-        self, ssh_config: str, cmd: str, script: str | None = None
+        self, ssh_config: str, cmd: str, script: str | None = None, quiet: bool = False
     ) -> tuple[bool, list[str]]:
         result = subprocess.run(
             ["ssh", ssh_config, f"bash -lc {shlex.quote(cmd)}"],
@@ -31,10 +31,12 @@ class SshRunner:
         )
         if result.returncode != 0:
             err = result.stderr.strip() or f"exit code {result.returncode} (no stderr)"
-            print(f"[\033[31m ERROR \033[0m] ssh command failed: {err}")
+            if not quiet:
+                print(f"[\033[31m ERROR \033[0m] ssh command failed: {err}")
             return False, []
-        print(f"[\033[32m OK \033[0m] ssh command succeeded: {cmd}")
-        print("--------------")
+        if not quiet:
+            print(f"[\033[32m OK \033[0m] ssh command succeeded: {cmd}")
+            print("--------------")
         return True, [
             line
             for line in result.stdout.strip().splitlines()
@@ -47,22 +49,25 @@ class SshRunner:
         script: str | None = None,
         retries: int = 0,
         retry_delay: float = 2.0,
+        quiet: bool = False,
     ) -> tuple[bool, list[str]]:
         attempt = 0
         while True:
             try:
-                ok, out = self._ssh_run(self.ssh_config, cmd, script)
+                ok, out = self._ssh_run(self.ssh_config, cmd, script, quiet=quiet)
             except Exception as e:
                 ok, out = False, []
-                print(f"Error running command '{cmd}': {e}")
+                if not quiet:
+                    print(f"Error running command '{cmd}': {e}")
             if ok or attempt >= retries:
                 return ok, out
             attempt += 1
             wait = retry_delay * attempt
-            print(
-                f"[\033[33m retry \033[0m] command failed, "
-                f"retrying ({attempt}/{retries}) in {wait:.0f}s: {cmd}"
-            )
+            if not quiet:
+                print(
+                    f"[\033[33m retry \033[0m] command failed, "
+                    f"retrying ({attempt}/{retries}) in {wait:.0f}s: {cmd}"
+                )
             time.sleep(wait)
 
     def create_dir(self, dir: str) -> bool:

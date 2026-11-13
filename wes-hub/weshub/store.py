@@ -103,6 +103,9 @@ class Store:
     def get_pipeline(self, pid: int) -> dict | None:
         return self._query_one("SELECT * FROM pipelines WHERE id = ?", (pid,))
 
+    def get_pipeline_by_name(self, name: str) -> dict | None:
+        return self._query_one("SELECT * FROM pipelines WHERE name = ?", (name,))
+
     def list_pipelines(self) -> list[dict]:
         return self._query("SELECT * FROM pipelines ORDER BY id")
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import yaml
@@ -352,6 +353,21 @@ def test_inject_job_status_without_header() -> None:
     echo_idx = next(i for i, ln in enumerate(lines) if ln.strip() == "echo hi")
     assert trap_idx < echo_idx
     assert inject_job_status(out) == out
+
+
+def test_injected_job_status_survives_directory_change(tmp_path) -> None:
+    status_log = tmp_path / "states"
+    helper = tmp_path / STATUS_HELPER_NAME
+    helper.write_text(f'#!/bin/bash\nprintf "%s\\n" "$1" >> "{status_log}"\n')
+    helper.chmod(0o755)
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    script = tmp_path / "job.sh"
+    script.write_text(inject_job_status(f'#!/bin/bash\ncd "{work_dir}"\n'))
+
+    subprocess.run(["bash", str(script)], check=True)
+
+    assert status_log.read_text().splitlines() == ["RUNNING", "COMPLETED"]
 
 
 def test_inject_pre_status_prepends_after_shebang() -> None:

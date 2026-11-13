@@ -48,6 +48,39 @@ uv run wes-hub serve --host 127.0.0.1 --port 8420 --data-dir ./data
 
 UI at http://127.0.0.1:8420/ - API docs at http://127.0.0.1:8420/docs
 
+## Git Workflow Catalog
+
+Run the hub with a Git repository containing `.weshub.yaml` to manage the
+available workflows declaratively:
+
+```bash
+uv run wes-hub serve --config examples/server.yaml
+```
+
+`examples/server.yaml` contains the host, data directory, polling intervals,
+and catalog repository settings. Command-line options such as `--port` still
+override a configured value when needed.
+
+The catalog declares the Slurm clusters the server may contact and the
+workflow directories it exposes:
+
+```yaml
+clusters:
+  hpc:
+    ssh: hpc-login
+
+workflows:
+  - name: ncpu-alu
+    path: workflows/ncpu-alu
+```
+
+Each workflow directory contains `pipeline.wes` plus its referenced scripts.
+The task's `ssh: hpc` selects the named cluster; the hub resolves it to the
+server's SSH config alias (`hpc-login`). The `.wes` task itself selects the
+experiment Git repository and `branch`, so one catalog can expose workflows
+for multiple repositories and branches. The hub clones/pulls the catalog at
+startup; `POST /api/catalog/sync` refreshes it without restarting.
+
 Note: WES resolves script paths and the `results/` prefix against the process
 working directory, so `wes-hub serve` changes into the data dir at startup.
 

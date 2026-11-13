@@ -44,3 +44,12 @@ def test_run_command_gives_up_after_retries() -> None:
     assert ok is False
     assert lines == []
     assert mock_run.call_count == 4
+
+
+def test_run_command_quiet_suppresses_command_output(capsys) -> None:
+    runner = SshRunner("hpc")
+    with patch.object(runner, "_ssh_run", return_value=(True, ["ok"])) as ssh_run:
+        assert runner.run_command("cmd", quiet=True) == (True, ["ok"])
+
+    assert ssh_run.call_args.kwargs["quiet"] is True
+    assert capsys.readouterr().out == ""

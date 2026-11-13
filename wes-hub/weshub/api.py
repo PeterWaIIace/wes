@@ -49,6 +49,24 @@ def list_pipelines():
     return get_hub().list_pipelines()
 
 
+@router.get("/catalog")
+def catalog():
+    hub_ = get_hub()
+    return {
+        "repo": hub_.settings.catalog_repo,
+        "branch": hub_.settings.catalog_branch,
+        "clusters": hub_.cluster_configs,
+    }
+
+
+@router.post("/catalog/sync")
+def sync_catalog():
+    try:
+        return get_hub().sync_catalog()
+    except HubError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
 @router.post("/pipelines", status_code=201)
 def create_pipeline(req: PipelineCreate):
     try:

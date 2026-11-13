@@ -55,16 +55,21 @@ yaml_kv() {
 
 # Injected into the job script by inject_job_status() before it is scp'd to
 # the server: report RUNNING when the SLURM job starts and COMPLETED/FAILED
-# via an EXIT trap when it finishes.
+# via an EXIT trap when it finishes. The job script can change directories,
+# so always invoke the helper from the directory containing the script.
 JOB_STATUS_SNIPPET = """\
 # --- wes status: injected by wes; pre.sh creates wes.status, this job updates it ---
-./wes_status.sh RUNNING "job started"
+wes_status_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+wes_status() {
+    (cd "$wes_status_dir" && ./wes_status.sh "$@")
+}
+wes_status RUNNING "job started"
 wes_on_exit() {
     rc=$?
     if [ "$rc" -eq 0 ]; then
-        ./wes_status.sh COMPLETED "exit code 0"
+        wes_status COMPLETED "exit code 0"
     else
-        ./wes_status.sh FAILED "exit code $rc"
+        wes_status FAILED "exit code $rc"
     fi
 }
 trap wes_on_exit EXIT

@@ -8,10 +8,11 @@ from wes.tasks.tasks import Task
 
 
 class JobScanner:
-    def __init__(self, ssh_config: str, base_dir: str = ".") -> None:
+    def __init__(self, ssh_config: str, base_dir: str = ".", quiet: bool = False) -> None:
         self.ssh_config = ssh_config
         self.runner = SshRunner(ssh_config)
         self.base_dir = base_dir
+        self.quiet = quiet
 
     def list_dir(
         self,
@@ -29,7 +30,7 @@ class JobScanner:
             if depth is not None:
                 cmd += f" -maxdepth {depth}"
 
-        ok, lines = self.runner.run_command(cmd)
+        ok, lines = self.runner.run_command(cmd, quiet=self.quiet)
         if not ok:
             return []
         return lines

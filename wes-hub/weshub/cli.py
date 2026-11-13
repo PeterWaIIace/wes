@@ -14,12 +14,15 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command")
 
     serve = sub.add_parser("serve", help="Start the wes-hub server")
-    serve.add_argument("--host", default="127.0.0.1")
-    serve.add_argument("--port", type=int, default=8420)
-    serve.add_argument("--data-dir", default="./data")
-    serve.add_argument("--poll-interval", type=float, default=15.0)
-    serve.add_argument("--scheduler-interval", type=float, default=30.0)
-    serve.add_argument("--discover-interval", type=float, default=60.0)
+    serve.add_argument("--config", help="YAML server configuration file")
+    serve.add_argument("--host")
+    serve.add_argument("--port", type=int)
+    serve.add_argument("--data-dir")
+    serve.add_argument("--poll-interval", type=float)
+    serve.add_argument("--scheduler-interval", type=float)
+    serve.add_argument("--discover-interval", type=float)
+    serve.add_argument("--catalog-repo", help="Git repository containing .weshub.yaml")
+    serve.add_argument("--catalog-branch")
     serve.add_argument(
         "--mock", action="store_true", help="Run against a local mock cluster (no ssh/SLURM)"
     )
@@ -46,14 +49,24 @@ def main() -> None:
         parser.print_help()
         return
 
-    settings = Settings(
-        host=args.host,
-        port=args.port,
-        data_dir=Path(os.path.abspath(args.data_dir)),
-        poll_interval=args.poll_interval,
-        scheduler_interval=args.scheduler_interval,
-        discover_interval=args.discover_interval,
-    )
+    try:
+        settings = Settings.from_file(args.config) if args.config else Settings()
+    except ValueError as e:
+        parser.error(str(e))
+    for field in (
+        "host",
+        "port",
+        "poll_interval",
+        "scheduler_interval",
+        "discover_interval",
+        "catalog_repo",
+        "catalog_branch",
+    ):
+        value = getattr(args, field)
+        if value is not None:
+            setattr(settings, field, value)
+    if args.data_dir is not None:
+        settings.data_dir = Path(os.path.abspath(args.data_dir))
     settings.ensure_dirs()
 
     if args.mock:

@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import dataclasses
 import shlex
+import shutil
+import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -126,6 +128,7 @@ class Hub:
         self._stop = threading.Event()
         self._last_discover = 0.0
         self._last_cluster: dict[str, float] = {}
+        self.cluster_configs: dict[str, str] = {}
 
     # ------------------------------------------------------------------ #
     # pipelines                                                          #
@@ -159,7 +162,100 @@ class Hub:
                 p = getattr(t, attr)
                 if p:
                     setattr(t, attr, str((base / p).resolve()))
+            if self.cluster_configs:
+                ssh = self.cluster_configs.get(t.ssh_config)
+                if not ssh:
+                    raise HubError(f"task '{t.name}' uses unconfigured cluster '{t.ssh_config}'")
+                t.ssh_config = ssh
         return tasks
+
+    def _sync_catalog_repo(self) -> None:
+        if not self.settings.catalog_repo:
+            return
+        catalog_dir = self.settings.catalog_dir
+        if catalog_dir.exists():
+            command = ["git", "-C", str(catalog_dir), "fetch", "origin", self.settings.catalog_branch]
+            subprocess.run(command, check=True, capture_output=True, text=True)
+            subprocess.run(
+                ["git", "-C", str(catalog_dir), "reset", "--hard", f"origin/{self.settings.catalog_branch}"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            return
+        subprocess.run(
+            [
+                "git",
+                "clone",
+                "--branch",
+                self.settings.catalog_branch,
+                "--single-branch",
+                self.settings.catalog_repo,
+                str(catalog_dir),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    def sync_catalog(self) -> list[dict]:
+        """Pull the workflow catalog and import its manifest into hub pipelines."""
+        if not self.settings.catalog_repo:
+            return []
+        try:
+            self._sync_catalog_repo()
+            manifest_path = self.settings.catalog_dir / ".weshub.yaml"
+            manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+        except (OSError, subprocess.CalledProcessError, yaml.YAMLError) as e:
+            raise HubError(f"catalog sync failed: {e}") from e
+        if not isinstance(manifest, dict):
+            raise HubError("catalog manifest must be a YAML mapping")
+
+        clusters = manifest.get("clusters", {})
+        if not isinstance(clusters, dict):
+            raise HubError("catalog 'clusters' must be a mapping")
+        self.cluster_configs = {}
+        for name, spec in clusters.items():
+            ssh = spec.get("ssh", name) if isinstance(spec, dict) else str(spec)
+            if not isinstance(name, str) or not ssh:
+                raise HubError("each catalog cluster needs a name and ssh config")
+            self.cluster_configs[name] = ssh
+
+        workflows = manifest.get("workflows", [])
+        if not isinstance(workflows, list):
+            raise HubError("catalog 'workflows' must be a list")
+        imported = []
+        for workflow in workflows:
+            if not isinstance(workflow, dict):
+                raise HubError("each workflow must be a mapping")
+            name = workflow.get("name")
+            directory = workflow.get("path")
+            cluster = workflow.get("cluster", "")
+            if not isinstance(name, str) or not isinstance(directory, str):
+                raise HubError("each workflow needs string 'name' and 'path'")
+            if cluster and cluster not in self.cluster_configs:
+                raise HubError(f"workflow '{name}' uses unknown cluster '{cluster}'")
+            source_dir = (self.settings.catalog_dir / directory).resolve()
+            if not str(source_dir).startswith(str(self.settings.catalog_dir.resolve())):
+                raise HubError(f"workflow '{name}' path escapes catalog")
+            wes_file = source_dir / workflow.get("file", "pipeline.wes")
+            if not wes_file.is_file():
+                raise HubError(f"workflow '{name}' file not found: {wes_file.relative_to(self.settings.catalog_dir)}")
+            wes_yaml = wes_file.read_text(encoding="utf-8")
+            assets = {
+                str(path.relative_to(source_dir)): path.read_text(encoding="utf-8")
+                for path in source_dir.rglob("*")
+                if path.is_file() and path != wes_file and ".git" not in path.parts
+            }
+            existing = self.store.get_pipeline_by_name(name)
+            if existing:
+                self.update_pipeline(existing["id"], wes_yaml=wes_yaml, ssh=cluster)
+                self.write_assets(existing["id"], assets)
+                pipeline = self.get_pipeline(existing["id"])
+            else:
+                pipeline = self.create_pipeline(name, wes_yaml, cluster, assets=assets)
+            imported.append(pipeline)
+        return imported
 
     def _missing_assets(self, tasks: list[Task]) -> list[str]:
         missing = []
@@ -240,10 +336,7 @@ class Hub:
         self.store.delete_pipeline(pid)
         pdir = self.pipeline_dir(pid)
         if pdir.exists():
-            for f in pdir.rglob("*"):
-                if f.is_file():
-                    f.unlink()
-            pdir.rmdir()
+            shutil.rmtree(pdir)
 
     def get_pipeline(self, pid: int) -> dict:
         pipeline = self.store.get_pipeline(pid)
@@ -329,7 +422,8 @@ class Hub:
     # ------------------------------------------------------------------ #
 
     def _ssh_configs(self) -> set[str]:
-        configs = {j["ssh"] for j in self.store.list_jobs() if j["ssh"]}
+        configs = set(self.cluster_configs.values())
+        configs.update(j["ssh"] for j in self.store.list_jobs() if j["ssh"])
         for p in self.store.list_pipelines():
             if p["ssh"]:
                 configs.add(p["ssh"])
@@ -608,6 +702,8 @@ class Hub:
 
     def start(self) -> None:
         self._stop.clear()
+        if self.settings.catalog_repo:
+            self.sync_catalog()
         t1 = threading.Thread(
             target=self._loop, args=(self.monitor_tick, self.settings.poll_interval), daemon=True
         )

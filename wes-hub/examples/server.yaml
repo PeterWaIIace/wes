@@ -1,0 +1,11 @@
+server:
+  host: 127.0.0.1
+  port: 8420
+  data_dir: ./data
+  poll_interval: 15
+  scheduler_interval: 30
+  discover_interval: 60
+
+catalog:
+  repo: ssh://git@example.com/team/wes-workflows.git
+  branch: main

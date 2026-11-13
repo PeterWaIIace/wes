@@ -61,12 +61,40 @@ def main() -> None:
     parser.add_sub(
         "check",
         help="One time job discovery and check. It uses wes to find wes status files on the remote and return its state.",
-        callback= lambda args : [wes.set_ssh(args.ssh), wes.check()][1],
+        callback=lambda args: [wes.set_ssh(args.ssh), wes.check(refresh=args.refresh)][1],
         arguments=[
             {
                 "argument": "--ssh",
                 "help": "SSH config name",
                 "required": True,
+            },
+            {
+                "argument": "--refresh",
+                "help": "Rediscover status files instead of using the path cache",
+                "action": "store_true",
+            },
+        ],
+    )
+
+    parser.add_sub(
+        "clean",
+        help="Remove remote WES job directories whose recorded state is FAILED",
+        callback=lambda args: [wes.set_ssh(args.ssh), wes.clean(dry_run=args.dry_run, refresh=args.refresh)][1],
+        arguments=[
+            {
+                "argument": "--ssh",
+                "help": "SSH config name",
+                "required": True,
+            },
+            {
+                "argument": "--dry-run",
+                "help": "List failed job directories without removing them",
+                "action": "store_true",
+            },
+            {
+                "argument": "--refresh",
+                "help": "Rediscover status files instead of using the path cache",
+                "action": "store_true",
             },
         ],
     )
