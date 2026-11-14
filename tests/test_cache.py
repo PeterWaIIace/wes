@@ -93,6 +93,7 @@ def test_task_to_cache_data() -> None:
         job_script="job.sh",
         pre_script="setup.sh",
         artifacts=["results"],
+        progress_artifacts=["results/progress.png"],
         cleanup=True,
         state=State.RUNNING,
         active_jobs=["12345"],
@@ -107,6 +108,7 @@ def test_task_to_cache_data() -> None:
     assert data["job"] == "job.sh"
     assert data["pre"] == "setup.sh"
     assert data["artifacts"] == ["results"]
+    assert data["progress_artifacts"] == ["results/progress.png"]
     assert data["cleanup"] is True
 
 
@@ -120,6 +122,7 @@ def test_cached_task_roundtrip() -> None:
         job_script="train.sh",
         pre_script="setup.sh",
         artifacts=["results"],
+        progress_artifacts=["results/progress.png"],
         cleanup=True,
         state=State.RUNNING,
         active_jobs=["999"],
@@ -136,6 +139,7 @@ def test_cached_task_roundtrip() -> None:
     assert restored.job_script == original.job_script
     assert restored.pre_script == original.pre_script
     assert restored.artifacts == original.artifacts
+    assert restored.progress_artifacts == original.progress_artifacts
     assert restored.cleanup_git is original.cleanup_git
     assert restored.status is State.RUNNING
     assert restored.jobs_ids == ["999"]

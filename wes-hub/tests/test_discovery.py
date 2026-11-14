@@ -9,8 +9,10 @@ and the status file is read and stored on adoption.
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from wes.jobs.status import StatusFile
 
 from weshub import mock as weshub_mock
 from weshub.config import Settings
@@ -46,6 +48,70 @@ def mock_hub(tmp_path, monkeypatch):
 
 def _cluster() -> Path:
     return Path(weshub_mock.mock_config()["cluster_dir"])
+
+
+def test_array_directories_are_discovered_as_separate_jobs(mock_hub):
+    cluster = _cluster()
+    for index in ("2", "3"):
+        relative_dir = f"sweep/ns/tasks/{index}"
+        _write_status(cluster, relative_dir, "ns")
+        with (cluster / relative_dir / "wes.status").open("a") as status_file:
+            status_file.write(f"array_index={index}\nparent_namespace=ns\n")
+
+    adopted = mock_hub.discover("mock", "sweep")
+
+    assert set(adopted) == {"ns_array_2", "ns_array_3"}
+    for index in ("2", "3"):
+        namespace = f"ns_array_{index}"
+        record = mock_hub.registry[namespace]
+        assert record.job.job_dir == f"sweep/ns/tasks/{index}"
+        assert record.job.pull_status()
+        assert record.job.status.namespace == namespace
+        assert mock_hub.store.get_job(namespace)["state"] == "COMPLETED"
+    assert mock_hub.discover("mock", "sweep") == []
+    assert mock_hub.store.get_job("ns") is None
+
+
+def test_array_job_uses_parent_artifacts_from_task_directory(mock_hub):
+    cluster = _cluster()
+    relative_dir = "sweep/ns/tasks/2"
+    _write_status(cluster, relative_dir, "ns_array_2")
+    with (cluster / relative_dir / "wes.status").open("a") as status_file:
+        status_file.write("array_index=2\nparent_namespace=ns\n")
+    (cluster / "sweep/ns/sweep_config.json").write_text(
+        '{"task": {"name": "sweep", "git_url": "https://example.com/repo.git", '
+        '"artifacts": ["results"], "progress_artifacts": ["results/progress.png"]}}'
+    )
+    mock_hub.discover("mock", "sweep")
+    job = mock_hub.registry["ns_array_2"].job
+
+    assert len(job.artifacts) == 1
+    assert job.artifacts[0].r_path == relative_dir
+    assert job.artifacts[0].r_name == "results"
+    assert job.progress_artifacts[0].r_path == f"{relative_dir}/results"
+    assert {entry.r_name for entry in job.status_files} == {
+        "wes.status"
+    }
+
+
+def test_array_scan_reads_current_and_legacy_status_dirs(mock_hub):
+    cluster = _cluster()
+    for relative_dir, index in (
+        ("sweep/ns/tasks/2", "2"),
+        ("sweep/ns/array-status/100/3", "3"),
+    ):
+        _write_status(cluster, relative_dir, "ns")
+        with (cluster / relative_dir / "wes.status").open("a") as status_file:
+            status_file.write(f"array_index={index}\n")
+    job = SimpleNamespace(
+        job_dir="sweep/ns",
+        ssh_config="mock",
+        status_file=StatusFile("sweep/ns", "mock"),
+    )
+
+    statuses = mock_hub._array_statuses(SimpleNamespace(job=job))
+
+    assert {status.array_index for status in statuses} == {"2", "3"}
 
 
 def test_discover_path_finds_status_dirs_and_stops_branches(mock_hub):
@@ -106,9 +172,164 @@ def test_discover_path_missing_dir(mock_hub):
     assert mock_hub.discover("mock", "does/not/exist") == []
 
 
-def test_discover_without_path_keeps_config_scan(mock_hub):
-    # no wes.status / *_config.json anywhere -> legacy scan adopts nothing
+def test_discover_without_path_adopts_status_only_jobs(mock_hub):
+    cluster = _cluster()
+    _write_status(cluster, "legacy/job", "ns_legacy")
+
+    assert mock_hub.discover("mock") == ["ns_legacy"]
+    assert mock_hub.store.get_job("ns_legacy")["state"] == "COMPLETED"
+
+
+def test_discover_ignores_config_only_dirs(mock_hub):
+    # a job dir with a config but no wes.status on the server is either still
+    # being created (runtime-only) or a ghost - it must not be adopted/stored
+    cluster = _cluster()
+    (cluster / "cfgonly/job").mkdir(parents=True)
+    (cluster / "cfgonly/job/demo_config.json").write_text("{}")
+
     assert mock_hub.discover("mock") == []
+    assert mock_hub.store.list_jobs() == []
+    assert mock_hub.registry == {}
+
+
+def test_full_discover_prunes_cached_jobs_missing_on_server(mock_hub, monkeypatch):
+    cluster = _cluster()
+    _write_status(cluster, "jobs/live", "ns_live")
+    mock_hub.store.upsert_job("ns_live", ssh="mock", job_name="live", discovered=1)
+    mock_hub.store.upsert_job("ns_ghost", ssh="mock", job_name="ghost", discovered=1)
+    monkeypatch.setattr(
+        "weshub.manager.Cluster", lambda _ssh: SimpleNamespace(get_jobs=lambda: [])
+    )
+
+    adopted = mock_hub.discover("mock")
+
+    assert adopted == ["ns_live"]
+    assert mock_hub.store.get_job("ns_live") is not None
+    # cached job with no wes.status on the server: removed from cache and UI
+    assert mock_hub.store.get_job("ns_ghost") is None
+
+
+def test_full_discover_keeps_cached_job_still_live_in_slurm(mock_hub, monkeypatch):
+    mock_hub.store.upsert_job(
+        "ns_live_slurm", ssh="mock", job_name="ghost", job_id="777", discovered=1
+    )
+    live = SimpleNamespace(job_id="777_3", name="ghost")
+    monkeypatch.setattr(
+        "weshub.manager.Cluster", lambda _ssh: SimpleNamespace(get_jobs=lambda: [live])
+    )
+
+    assert mock_hub.discover("mock") == []
+    assert mock_hub.store.get_job("ns_live_slurm") is not None
+
+
+def test_full_discover_prunes_runtime_job_missing_on_server(mock_hub, monkeypatch):
+    from weshub.manager import JobRecord
+
+    cluster = _cluster()
+    _write_status(cluster, "jobs/live", "ns_live")
+    # runtime-tracked job whose status is gone from the server
+    job = SimpleNamespace(
+        namespace="ns_ghost",
+        job_name="ghost",
+        ssh_config="mock",
+        task=SimpleNamespace(name="demo", jobs_ids=[]),
+        status_file=SimpleNamespace(job_dir_exists=lambda: True),
+    )
+    rec = JobRecord(job, None, None, discovered=True)
+    rec.status_seen = True
+    mock_hub.registry["ns_ghost"] = rec
+    mock_hub.store.upsert_job("ns_ghost", ssh="mock", job_name="ghost", discovered=1)
+    monkeypatch.setattr(
+        "weshub.manager.Cluster", lambda _ssh: SimpleNamespace(get_jobs=lambda: [])
+    )
+
+    assert mock_hub.discover("mock") == ["ns_live"]
+
+    assert "ns_ghost" not in mock_hub.registry
+    assert mock_hub.store.get_job("ns_ghost") is None
+    assert mock_hub.store.get_job("ns_live") is not None
+
+
+def test_full_discover_keeps_in_creation_runtime_job(mock_hub, monkeypatch):
+    from weshub.manager import JobRecord
+
+    # dispatched but no wes.status on the server yet: runtime-only, kept
+    job = SimpleNamespace(
+        namespace="ns_fresh",
+        job_name="fresh",
+        ssh_config="mock",
+        task=SimpleNamespace(name="demo", jobs_ids=[]),
+        status_file=SimpleNamespace(job_dir_exists=lambda: True),
+    )
+    mock_hub.registry["ns_fresh"] = JobRecord(job, 1, 1, discovered=False)
+    monkeypatch.setattr(
+        "weshub.manager.Cluster", lambda _ssh: SimpleNamespace(get_jobs=lambda: [])
+    )
+
+    assert mock_hub.discover("mock") == []
+
+    assert "ns_fresh" in mock_hub.registry
+    assert mock_hub.store.get_job("ns_fresh") is None
+
+
+def test_full_discover_prunes_jobless_runs(mock_hub, monkeypatch):
+    monkeypatch.setattr(
+        "weshub.manager.Cluster", lambda _ssh: SimpleNamespace(get_jobs=lambda: [])
+    )
+    pipeline = mock_hub.store.add_pipeline("p", "sequence: {}", "mock", "", True)
+    old_run = mock_hub.store.add_run(pipeline["id"], "manual")
+    mock_hub.store.update_run(old_run["id"], "COMPLETED", finished_at=1.0)
+    mock_hub.store.upsert_job(
+        "ns_gone", run_id=old_run["id"], pipeline_id=pipeline["id"],
+        ssh="mock", job_name="gone", discovered=1,
+    )
+    fresh_run = mock_hub.store.add_run(pipeline["id"], "manual")
+
+    mock_hub.discover("mock")
+
+    # finished run whose job is gone from the server: run row removed too
+    assert mock_hub.store.get_run(old_run["id"]) is None
+    # fresh run within the grace period: kept (dispatch may not have registered)
+    assert mock_hub.store.get_run(fresh_run["id"]) is not None
+
+
+def test_full_discover_keeps_run_with_slurm_live_job(mock_hub, monkeypatch):
+    pipeline = mock_hub.store.add_pipeline("p", "sequence: {}", "mock", "", True)
+    run = mock_hub.store.add_run(pipeline["id"], "manual")
+    mock_hub.store.update_run(run["id"], "RUNNING", finished_at=None)
+    mock_hub.store.upsert_job(
+        "ns_live", run_id=run["id"], pipeline_id=pipeline["id"],
+        ssh="mock", job_name="livejob", job_id="42", discovered=1,
+    )
+    live = SimpleNamespace(job_id="42_0", name="livejob")
+    monkeypatch.setattr(
+        "weshub.manager.Cluster", lambda _ssh: SimpleNamespace(get_jobs=lambda: [live])
+    )
+
+    mock_hub.discover("mock")
+
+    assert mock_hub.store.get_run(run["id"]) is not None
+    assert mock_hub.store.get_job("ns_live") is not None
+
+
+def test_path_discover_does_not_prune(mock_hub, monkeypatch):
+    # a partial-path scan must not prune jobs outside the scanned subtree
+    mock_hub.store.upsert_job("ns_other", ssh="mock", job_name="other", discovered=1)
+    monkeypatch.setattr(
+        "weshub.manager.Cluster", lambda _ssh: SimpleNamespace(get_jobs=lambda: [])
+    )
+
+    assert mock_hub.discover("mock", "jobs") == []
+    assert mock_hub.store.get_job("ns_other") is not None
+
+
+def test_discover_without_path_reads_status_before_config_fallback(mock_hub):
+    cluster = _cluster()
+    _write_status(cluster, "configured/job", "ns_configured", state="RUNNING")
+    (cluster / "configured/job/demo_config.json").write_text("{}")
+
+    assert mock_hub.discover("mock") == ["ns_configured"]
+    assert mock_hub.store.get_job("ns_configured")["state"] == "RUNNING"
 
 
 def test_discovery_api_with_path(mock_hub):
@@ -126,8 +347,12 @@ def test_discovery_api_with_path(mock_hub):
     res = client.post("/api/discovery/mock", params={"path": "api_jobs"})
     assert res.status_code == 200, res.text
     assert res.json()["adopted"] == ["ns_x"]
+    assert res.json()["jobs"] == [
+        {**res.json()["jobs"][0], "namespace": "ns_x", "state": "COMPLETED"}
+    ]
 
-    # without path the endpoint keeps the legacy config scan
+    # without path, discovery is status-only: the already-adopted job is not
+    # re-adopted and config-only dirs are ignored
     res = client.post("/api/discovery/mock")
     assert res.status_code == 200
     assert res.json()["adopted"] == []

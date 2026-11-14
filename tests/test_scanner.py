@@ -178,3 +178,28 @@ def test_check_reuses_cached_status_paths(monkeypatch, tmp_path) -> None:
 
     assert wes.check() == [{"state": "RUNNING"}]
     assert commands == ["cat ./run/wes.status"]
+
+
+def test_check_prunes_stale_paths_from_cache(monkeypatch, tmp_path) -> None:
+    import yaml
+
+    wes = WES("hpc")
+    cache_file = tmp_path / "paths.yaml"
+    monkeypatch.setattr(wes, "_status_cache_path", lambda rootdir: cache_file)
+    wes._write_status_cache(".", ["./live/wes.status", "./gone/wes.status"])
+
+    def run_command(self, command, **kwargs):
+        if command == "cat ./live/wes.status":
+            return True, ["state: RUNNING"]
+        return False, []  # ./gone no longer exists on the server
+
+    monkeypatch.setattr("wes.SshRunner.run_command", run_command)
+    monkeypatch.setattr(
+        JobScanner,
+        "list_dir",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("unexpected discovery")),
+    )
+
+    assert wes.check() == [{"state": "RUNNING"}]
+    # the deleted job's path was pruned from the cache, not just from the result
+    assert yaml.safe_load(cache_file.read_text()) == ["./live/wes.status"]

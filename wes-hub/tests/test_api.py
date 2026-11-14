@@ -12,12 +12,13 @@ from weshub.app import create_app
 from weshub.config import Settings
 
 WES_YAML = """sequence:
-  - demo_task:
-      git_url: ssh://git@example.com/user/demo.git
-      branch: main
-      ssh: hpc
-      job: job.sh
-      artifacts: [results]
+    demo_task:
+        git_url: ssh://git@example.com/user/demo.git
+        branch: main
+        ssh: hpc
+        job: job.sh
+        artifacts: [results]
+        progress-artifacts: [results/progress.png]
 """
 
 ASSETS = {"job.sh": "#!/bin/bash\necho hello\n"}
@@ -50,6 +51,7 @@ class FakeJob:
         self.artifacts = []
         self.status_files = []
         self.status = FakeStatus(self.namespace)
+        self.status_file = SimpleNamespace(job_dir_exists=lambda: True)
         FakeJob.instances.append(self)
 
     def upload_scripts(self):
@@ -63,6 +65,7 @@ class FakeJob:
 
     def pull_status(self):
         self.status.state = SimpleNamespace(value="COMPLETED")
+        return True
 
 
 class FakeScanner:
@@ -167,18 +170,30 @@ def test_dispatch_and_monitor(tmp_path):
             time.sleep(0.05)
         assert jobs and jobs[0]["run_id"] == run["id"]
         assert jobs[0]["task"] == "demo_task"
+        assert jobs[0]["progress_artifacts"] == []
 
-        # run the monitor once: status becomes COMPLETED, results marked pulled
         from weshub import api as api_mod
 
         api_hub = api_mod.get_hub()
+        progress = api_hub.settings.results_dir / "demo_task" / "ns_1" / "demo" / "results"
+        progress.mkdir(parents=True)
+        (progress / "progress.png").write_bytes(b"not-a-real-image")
+        jobs = client.get("/api/jobs").json()
+        assert jobs[0]["progress_artifacts"] == [
+            {
+                "path": "demo_task/ns_1/demo/results/progress.png",
+                "thumbnail": True,
+            }
+        ]
+
+        # run the monitor once: status becomes COMPLETED, results marked pulled
         api_hub.monitor_tick()
         jobs = client.get("/api/jobs").json()
         assert jobs[0]["state"] == "COMPLETED"
         assert jobs[0]["artifacts_pulled"] == 1
 
         run = client.get(f"/api/runs/{run['id']}").json()
-        assert run["status"] == "success"
+        assert run["status"] == "COMPLETED"
         assert run["finished_at"] is not None
 
 
@@ -188,3 +203,45 @@ def test_state_endpoint(tmp_path):
     state = client.get("/api/state").json()
     assert len(state["pipelines"]) == 1
     assert state["pipelines"][0]["name"] == "demo"
+
+
+def test_job_results_tree(tmp_path):
+    client, _ = make_client(tmp_path)
+    from weshub import api as api_mod
+
+    hub = api_mod.get_hub()
+    hub.store.upsert_job("demo_ns", task="demo", state="COMPLETED", artifacts_pulled=1)
+    result_file = hub.settings.results_dir / "demo" / "demo_ns" / "repo" / "summary.txt"
+    result_file.parent.mkdir(parents=True)
+    result_file.write_text("done")
+
+    response = client.get("/api/jobs/demo_ns/results")
+
+    assert response.status_code == 200
+    assert response.json()["entries"] == [
+        {
+            "name": "repo",
+            "path": "demo/demo_ns/repo",
+            "directory": True,
+            "children": [
+                {
+                    "name": "summary.txt",
+                    "path": "demo/demo_ns/repo/summary.txt",
+                    "directory": False,
+                    "children": [],
+                }
+            ],
+        }
+    ]
+
+
+def test_cluster_endpoint_rejects_unconfigured_ssh(tmp_path):
+    client, _ = make_client(tmp_path)
+    from weshub import api as api_mod
+
+    api_mod.get_hub().cluster_configs = {"hpc": "hpc"}
+
+    response = client.get("/api/clusters/mock")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "cluster 'mock' is not configured"

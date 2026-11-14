@@ -50,6 +50,7 @@ class MockRunner:
         script: str | None = None,
         retries: int = 0,
         retry_delay: float = 2.0,
+        quiet: bool = False,
     ) -> tuple[bool, list[str]]:
         result = subprocess.run(
             ["bash", "-c", cmd],

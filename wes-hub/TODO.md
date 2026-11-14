@@ -67,10 +67,9 @@ changes in the `wes` library itself once it becomes a PyPI package — until the
         uploads to emulate a lenient cluster setup.
       - `SshRunner` subprocess calls have no timeout — wes-hub bounds them
         itself (`settings.ssh_timeout`), wes should pass `timeout=` natively.
-- [ ] `wes_status.sh` exit trap is invoked relative to the job dir — a job
-      script that `cd`s into the cloned repo breaks final status updates
-      (stays RUNNING). Consider absolute paths in the injected snippet
-      *(wes-upstream)*; document in the meantime.
+- [x] `wes_status.sh` exit trap is invoked through an absolute path — a job
+      script that `cd`s elsewhere still writes its final status. Array jobs
+      now run in `tasks/<SLURM_ARRAY_TASK_ID>/` with a `wes.status` per element.
 - [ ] Docker image + docker-compose example.
 - [ ] Auth for the hub API/UI (even a simple token).
 - [ ] Secrets: `.env`-style git credentials today; need a per-pipeline secret

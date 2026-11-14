@@ -1,197 +1,243 @@
 from __future__ import annotations
 
-import sqlite3
+import re
 import threading
 import time
-from pathlib import Path
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS pipelines (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    ssh TEXT NOT NULL DEFAULT '',
-    cron TEXT NOT NULL DEFAULT '',
-    enabled INTEGER NOT NULL DEFAULT 1,
-    wes_yaml TEXT NOT NULL,
-    created_at REAL NOT NULL,
-    next_run_at REAL
-);
+_PIPELINE_DEFAULTS = {
+    "ssh": "",
+    "cron": "",
+    "enabled": 1,
+    "next_run_at": None,
+}
 
-CREATE TABLE IF NOT EXISTS runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    pipeline_id INTEGER NOT NULL,
-    trigger TEXT NOT NULL DEFAULT 'manual',
-    status TEXT NOT NULL DEFAULT 'queued',
-    created_at REAL NOT NULL,
-    finished_at REAL
-);
+_RUN_DEFAULTS = {
+    "trigger": "manual",
+    "status": "",
+    "finished_at": None,
+}
 
-CREATE TABLE IF NOT EXISTS jobs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    namespace TEXT NOT NULL UNIQUE,
-    run_id INTEGER,
-    pipeline_id INTEGER,
-    task TEXT NOT NULL DEFAULT '',
-    job_name TEXT NOT NULL DEFAULT '',
-    ssh TEXT NOT NULL DEFAULT '',
-    state TEXT NOT NULL DEFAULT 'PENDING',
-    job_id TEXT NOT NULL DEFAULT '',
-    node TEXT NOT NULL DEFAULT '',
-    partition TEXT NOT NULL DEFAULT '',
-    message TEXT NOT NULL DEFAULT '',
-    updated TEXT NOT NULL DEFAULT '',
-    discovered INTEGER NOT NULL DEFAULT 0,
-    artifacts_pulled INTEGER NOT NULL DEFAULT 0,
-    created_at REAL NOT NULL
-);
-"""
+_JOB_DEFAULTS = {
+    "run_id": None,
+    "pipeline_id": None,
+    "task": "",
+    "job_name": "",
+    "ssh": "",
+    "state": "",
+    "job_id": "",
+    "node": "",
+    "partition": "",
+    "message": "",
+    "updated": "",
+    "discovered": 0,
+    "artifacts_pulled": 0,
+}
+
+_CHILD_DEFAULTS = {
+    "job_id": "",
+    "state": "",
+    "node": "",
+    "partition": "",
+    "message": "",
+    "updated": "",
+}
+
+_ACTIVE_RUN_STATUSES = ("", "queued", "running", "PENDING", "RUNNING")
+
+
+def _cast_int(value: str) -> int:
+    """Mimic SQLite's CAST(x AS INTEGER): leading numeric prefix, else 0."""
+    match = re.match(r"\s*[+-]?\d+", str(value))
+    return int(match.group()) if match else 0
 
 
 class Store:
-    """Tiny thread-safe sqlite persistence layer."""
+    """Thread-safe in-memory runtime store.
 
-    def __init__(self, path: str | Path):
-        self.path = str(path)
+    Pipelines, runs, jobs and array children live only for the lifetime of
+    the process; nothing is written to disk.
+    """
+
+    def __init__(self):
         self.lock = threading.Lock()
-        self.conn = sqlite3.connect(self.path, check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
-        with self.lock:
-            self.conn.executescript(_SCHEMA)
-            self.conn.commit()
-
-    # -- helpers -----------------------------------------------------------
-
-    def _exec(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
-        with self.lock:
-            cur = self.conn.execute(sql, params)
-            self.conn.commit()
-            return cur
-
-    def _query(self, sql: str, params: tuple = ()) -> list[dict]:
-        with self.lock:
-            rows = self.conn.execute(sql, params).fetchall()
-        return [dict(r) for r in rows]
-
-    def _query_one(self, sql: str, params: tuple = ()) -> dict | None:
-        rows = self._query(sql, params)
-        return rows[0] if rows else None
+        self._pipelines: dict[int, dict] = {}
+        self._runs: dict[int, dict] = {}
+        self._jobs: dict[str, dict] = {}
+        self._array_children: dict[tuple[str, str], dict] = {}
+        self._next_pipeline_id = 1
+        self._next_run_id = 1
+        self._next_job_id = 1
 
     # -- pipelines ---------------------------------------------------------
 
     def add_pipeline(self, name: str, wes_yaml: str, ssh: str, cron: str, enabled: bool) -> dict:
-        now = time.time()
-        cur = self._exec(
-            "INSERT INTO pipelines "
-            "(name, wes_yaml, ssh, cron, enabled, created_at) VALUES (?,?,?,?,?,?)",
-            (name, wes_yaml, ssh, cron, int(enabled), now),
-        )
-        return self.get_pipeline(cur.lastrowid)
+        with self.lock:
+            pid = self._next_pipeline_id
+            self._next_pipeline_id += 1
+            row = {
+                "id": pid,
+                "name": name,
+                "wes_yaml": wes_yaml,
+                **_PIPELINE_DEFAULTS,
+                "ssh": ssh,
+                "cron": cron,
+                "enabled": int(enabled),
+                "created_at": time.time(),
+            }
+            self._pipelines[pid] = row
+            return dict(row)
 
     def update_pipeline(self, pid: int, **fields) -> dict | None:
         allowed = {"name", "wes_yaml", "ssh", "cron", "enabled", "next_run_at"}
-        cols = [k for k in fields if k in allowed and fields[k] is not None]
-        if not cols:
-            return self.get_pipeline(pid)
-        sets = ", ".join(f"{c} = ?" for c in cols)
-        params = tuple(fields[c] for c in cols) + (pid,)
-        self._exec(f"UPDATE pipelines SET {sets} WHERE id = ?", params)
-        return self.get_pipeline(pid)
+        with self.lock:
+            row = self._pipelines.get(pid)
+            if row is not None:
+                for key, value in fields.items():
+                    if key in allowed and value is not None:
+                        row[key] = value
+            return dict(row) if row else None
 
     def delete_pipeline(self, pid: int) -> None:
-        self._exec("DELETE FROM pipelines WHERE id = ?", (pid,))
+        with self.lock:
+            self._pipelines.pop(pid, None)
 
     def get_pipeline(self, pid: int) -> dict | None:
-        return self._query_one("SELECT * FROM pipelines WHERE id = ?", (pid,))
+        with self.lock:
+            row = self._pipelines.get(pid)
+            return dict(row) if row else None
 
     def get_pipeline_by_name(self, name: str) -> dict | None:
-        return self._query_one("SELECT * FROM pipelines WHERE name = ?", (name,))
+        with self.lock:
+            for row in self._pipelines.values():
+                if row["name"] == name:
+                    return dict(row)
+        return None
 
     def list_pipelines(self) -> list[dict]:
-        return self._query("SELECT * FROM pipelines ORDER BY id")
+        with self.lock:
+            return [dict(r) for r in sorted(self._pipelines.values(), key=lambda r: r["id"])]
 
     # -- runs --------------------------------------------------------------
 
     def add_run(self, pipeline_id: int, trigger: str) -> dict:
-        now = time.time()
-        cur = self._exec(
-            "INSERT INTO runs (pipeline_id, trigger, status, created_at) VALUES (?,?,?,?)",
-            (pipeline_id, trigger, "queued", now),
-        )
-        return self.get_run(cur.lastrowid)
+        with self.lock:
+            rid = self._next_run_id
+            self._next_run_id += 1
+            row = {
+                "id": rid,
+                "pipeline_id": pipeline_id,
+                **_RUN_DEFAULTS,
+                "trigger": trigger,
+                "created_at": time.time(),
+            }
+            self._runs[rid] = row
+            return dict(row)
+
+    def delete_run(self, run_id: int) -> None:
+        with self.lock:
+            self._runs.pop(run_id, None)
+            for ns in [ns for ns, row in self._jobs.items() if row["run_id"] == run_id]:
+                del self._jobs[ns]
 
     def update_run(self, run_id: int, status: str, finished_at: float | None = None) -> None:
-        if finished_at is not None:
-            self._exec(
-                "UPDATE runs SET status = ?, finished_at = ? WHERE id = ?",
-                (status, finished_at, run_id),
-            )
-        else:
-            self._exec("UPDATE runs SET status = ? WHERE id = ?", (status, run_id))
+        with self.lock:
+            row = self._runs.get(run_id)
+            if row is None:
+                return
+            row["status"] = status
+            if finished_at is not None:
+                row["finished_at"] = finished_at
 
     def get_run(self, run_id: int) -> dict | None:
-        return self._query_one("SELECT * FROM runs WHERE id = ?", (run_id,))
+        with self.lock:
+            row = self._runs.get(run_id)
+            return dict(row) if row else None
 
     def list_runs(self, pipeline_id: int | None = None, limit: int = 100) -> list[dict]:
-        if pipeline_id is not None:
-            return self._query(
-                "SELECT * FROM runs WHERE pipeline_id = ? ORDER BY id DESC LIMIT ?",
-                (pipeline_id, limit),
-            )
-        return self._query("SELECT * FROM runs ORDER BY id DESC LIMIT ?", (limit,))
+        with self.lock:
+            rows = self._runs.values()
+            if pipeline_id is not None:
+                rows = (r for r in rows if r["pipeline_id"] == pipeline_id)
+            ordered = sorted(rows, key=lambda r: r["id"], reverse=True)[:limit]
+            return [dict(r) for r in ordered]
 
     def active_run_states(self) -> list[int]:
-        return [
-            r["id"] for r in self._query("SELECT id FROM runs WHERE status IN ('queued','running')")
-        ]
+        with self.lock:
+            return [
+                r["id"]
+                for r in sorted(self._runs.values(), key=lambda r: r["id"])
+                if r["status"] in _ACTIVE_RUN_STATUSES
+            ]
 
     # -- jobs --------------------------------------------------------------
 
     def upsert_job(self, namespace: str, **fields) -> int:
-        data = {k: v for k, v in fields.items() if v is not None}
+        data = {k: v for k, v in fields.items() if v is not None and k != "namespace"}
         with self.lock:
-            existing = self.conn.execute(
-                "SELECT id FROM jobs WHERE namespace = ?", (namespace,)
-            ).fetchone()
-            if not existing:
-                data.pop("namespace", None)
-                cols = ["namespace", "created_at"] + list(data)
-                vals = [namespace, time.time()] + [data[c] for c in data]
-                marks = ", ".join("?" for _ in cols)
-                cur = self.conn.execute(
-                    f"INSERT INTO jobs ({', '.join(cols)}) VALUES ({marks})", vals
-                )
-                new_id = cur.lastrowid
+            row = self._jobs.get(namespace)
+            if row is None:
+                jid = self._next_job_id
+                self._next_job_id += 1
+                row = {
+                    "id": jid,
+                    "namespace": namespace,
+                    **_JOB_DEFAULTS,
+                    "created_at": time.time(),
+                }
+                row.update(data)
+                self._jobs[namespace] = row
             else:
-                if data:
-                    sets = ", ".join(f"{k} = ?" for k in data)
-                    self.conn.execute(
-                        f"UPDATE jobs SET {sets} WHERE namespace = ?",
-                        (*data.values(), namespace),
-                    )
-                new_id = existing["id"]
-            self.conn.commit()
-            return new_id
+                row.update(data)
+            return row["id"]
 
     def get_job(self, namespace: str) -> dict | None:
-        return self._query_one("SELECT * FROM jobs WHERE namespace = ?", (namespace,))
+        with self.lock:
+            row = self._jobs.get(namespace)
+            return dict(row) if row else None
+
+    def delete_job(self, namespace: str) -> None:
+        with self.lock:
+            self._jobs.pop(namespace, None)
+            for key in [k for k in self._array_children if k[0] == namespace]:
+                del self._array_children[key]
 
     def list_jobs(self, run_id: int | None = None) -> list[dict]:
-        if run_id is not None:
-            return self._query("SELECT * FROM jobs WHERE run_id = ? ORDER BY id", (run_id,))
-        return self._query("SELECT * FROM jobs ORDER BY id")
+        with self.lock:
+            rows = self._jobs.values()
+            if run_id is not None:
+                rows = (r for r in rows if r["run_id"] == run_id)
+            return [dict(r) for r in sorted(rows, key=lambda r: r["id"])]
 
     def set_job_state(self, namespace: str, state: str, **extra) -> None:
         fields = {"state": state, **{k: v for k, v in extra.items() if v is not None}}
-        sets = ", ".join(f"{k} = ?" for k in fields)
-        params = tuple(fields.values()) + (namespace,)
-        self._exec(f"UPDATE jobs SET {sets} WHERE namespace = ?", params)
+        with self.lock:
+            row = self._jobs.get(namespace)
+            if row is not None:
+                row.update(fields)
 
     def link_job(self, namespace: str, run_id: int, pipeline_id: int) -> None:
-        self._exec(
-            "UPDATE jobs SET run_id = ?, pipeline_id = ? WHERE namespace = ?",
-            (run_id, pipeline_id, namespace),
-        )
-
-    def close(self) -> None:
         with self.lock:
-            self.conn.close()
+            row = self._jobs.get(namespace)
+            if row is not None:
+                row["run_id"] = run_id
+                row["pipeline_id"] = pipeline_id
+
+    # -- array children ----------------------------------------------------
+
+    def upsert_array_child(self, parent_namespace: str, array_index: str, **fields) -> None:
+        data = {k: v for k, v in fields.items() if v is not None}
+        key = (parent_namespace, array_index)
+        with self.lock:
+            row = self._array_children.get(key)
+            if row is None:
+                row = {"parent_namespace": parent_namespace, "array_index": array_index, **_CHILD_DEFAULTS}
+                row.update(data)
+                self._array_children[key] = row
+            else:
+                row.update(data)
+
+    def list_array_children(self, parent_namespace: str) -> list[dict]:
+        with self.lock:
+            rows = [r for r in self._array_children.values() if r["parent_namespace"] == parent_namespace]
+            rows.sort(key=lambda r: (_cast_int(r["array_index"]), r["array_index"]))
+            return [dict(r) for r in rows]

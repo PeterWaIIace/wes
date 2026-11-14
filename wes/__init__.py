@@ -13,9 +13,10 @@ import yaml
 from wes.cluster import Cluster
 from wes.clusters.node import NodeCapacity
 from wes.engine import Engine
-from wes.jobs.job import JobInfo, SshItem, STATUS_FILENAME
+from wes.jobs.job import STATUS_FILENAME, JobInfo, SshItem
 from wes.jobs.scanner import JobScanner
 from wes.remote.runner import SshRunner
+
 
 class WES:
     def __init__(self, ssh: str | None = None):
@@ -24,14 +25,17 @@ class WES:
 
     def _status_cache_path(self, rootdir: str) -> Path:
         key = sha256(f"{self.ssh}\0{rootdir}".encode()).hexdigest()
-        return Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "wes" / f"{key}.yaml"
+        cache_dir = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+        return cache_dir / "wes" / f"{key}.yaml"
 
     def _read_status_cache(self, rootdir: str) -> list[str]:
         try:
             data = yaml.safe_load(self._status_cache_path(rootdir).read_text())
         except (OSError, yaml.YAMLError):
             return []
-        return data if isinstance(data, list) and all(isinstance(path, str) for path in data) else []
+        if isinstance(data, list) and all(isinstance(path, str) for path in data):
+            return data
+        return []
 
     def _write_status_cache(self, rootdir: str, paths: list[str]) -> None:
         cache_path = self._status_cache_path(rootdir)
@@ -99,7 +103,9 @@ class WES:
         dirs_to_discover = deque([rootdir])
         while dirs_to_discover:
             current_dir = dirs_to_discover.popleft()
-            results = JobScanner(self.ssh, quiet=True).list_dir(current_dir, recursive=False, depth=1)
+            results = JobScanner(self.ssh, quiet=True).list_dir(
+                current_dir, recursive=False, depth=1
+            )
 
             status_paths = [p for p in results if os.path.basename(p) == STATUS_FILENAME]
             if status_paths:
@@ -131,12 +137,18 @@ class WES:
 
     def _statuses(self, rootdir=".", refresh=False):
         if not refresh:
+            cached_paths = self._read_status_cache(rootdir)
             cached = []
-            for path in self._read_status_cache(rootdir):
+            live_paths = []
+            for path in cached_paths:
                 data = self._read_status(path)
                 if data:
                     cached.append((str(Path(path).parent), path, data))
+                    live_paths.append(path)
             if cached:
+                # prune cached paths whose job no longer exists on the server
+                if len(live_paths) < len(cached_paths):
+                    self._write_status_cache(rootdir, live_paths)
                 return cached
 
         discovered = self._discover_statuses(rootdir)

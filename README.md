@@ -45,12 +45,18 @@ sequence:
       job: scripts/job.sh
       artifacts:
         - results
+      progress-artifacts:
+        - results/progress.png
       cpus: "4"
       gpus: "1"
       memory: 16G
 ```
 
 See `task.wes` for a working example.
+
+`artifacts` are pulled when the job finishes. `progress-artifacts` are files
+refreshed by WES Hub while the Slurm job is pending or running; image files are
+shown as thumbnails in the job detail.
 
 ## Job status on the server
 

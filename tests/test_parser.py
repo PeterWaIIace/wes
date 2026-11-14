@@ -60,6 +60,8 @@ class TestWESParserValid:
                 artifacts:
                     - ml/results
                     - ml/checkpoints
+                progress-artifacts:
+                    - ml/results/progress.png
                 cleanup: true
         """
         p = wes_file(content)
@@ -75,6 +77,7 @@ class TestWESParserValid:
         assert task.job_script == "scripts/train.sh"
         assert task.pre_script == "scripts/setup.sh"
         assert task.artifacts == ["ml/results", "ml/checkpoints"]
+        assert task.progress_artifacts == ["ml/results/progress.png"]
         assert task.cleanup_git is True
 
     def test_parse_dict_sequence(self, wes_file) -> None:

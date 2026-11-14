@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -107,6 +108,8 @@ class JobStatus:
     wes_file: str = ""
     state: State = State.PENDING
     job_id: str = ""
+    parent_namespace: str = ""
+    array_index: str = ""
     node: str = ""
     partition: str = ""
     updated: str = ""
@@ -121,7 +124,15 @@ class JobStatus:
             "state": self.state.value,
             "updated": self.updated,
         }
-        for key in ("wes_file", "job_id", "node", "partition", "message"):
+        for key in (
+            "wes_file",
+            "job_id",
+            "parent_namespace",
+            "array_index",
+            "node",
+            "partition",
+            "message",
+        ):
             value = getattr(self, key)
             if value:
                 data[key] = value
@@ -145,6 +156,8 @@ class JobStatus:
             wes_file=str(data.get("wes_file") or ""),
             state=state,
             job_id=str(data.get("job_id") or ""),
+            parent_namespace=str(data.get("parent_namespace") or ""),
+            array_index=str(data.get("array_index") or ""),
             node=str(data.get("node") or ""),
             partition=str(data.get("partition") or ""),
             updated=str(data.get("updated") or ""),
@@ -189,3 +202,17 @@ class StatusFile:
         if not ok or not lines:
             return None
         return JobStatus.from_text("\n".join(lines))
+
+    def job_dir_exists(self) -> bool | None:
+        """Whether the remote job dir exists.
+
+        Returns None when the server could not be reached (ssh failure), so
+        callers do not prune live jobs on a transient network error.
+        """
+        ok, lines = self.runner.run_command(
+            f"if [ -d {shlex.quote(self.job_dir)} ]; then echo yes; else echo no; fi",
+            quiet=True,
+        )
+        if not ok:
+            return None
+        return bool(lines and lines[0].strip() == "yes")

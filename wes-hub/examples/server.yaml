@@ -3,6 +3,7 @@ server:
   port: 8420
   data_dir: ./data
   poll_interval: 15
+  progress_interval: 100
   scheduler_interval: 30
   discover_interval: 60
 

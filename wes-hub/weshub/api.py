@@ -121,7 +121,7 @@ def list_runs(pipeline: int | None = None, limit: int = 100):
     hub_ = get_hub()
     runs = hub_.store.list_runs(pipeline, limit)
     for r in runs:
-        r["jobs"] = hub_.store.list_jobs(r["id"])
+        r["jobs"] = [hub_.enrich_job(job) for job in hub_.list_jobs(r["id"])]
     return runs
 
 
@@ -130,13 +130,15 @@ def get_run(rid: int):
     run = get_hub().store.get_run(rid)
     if not run:
         raise HTTPException(status_code=404, detail=f"run {rid} not found")
-    run["jobs"] = get_hub().store.list_jobs(rid)
+    hub_ = get_hub()
+    run["jobs"] = [hub_.enrich_job(job) for job in hub_.list_jobs(rid)]
     return run
 
 
 @router.get("/jobs")
 def list_jobs(run: int | None = None):
-    return get_hub().store.list_jobs(run)
+    hub_ = get_hub()
+    return [hub_.enrich_job(job) for job in hub_.list_jobs(run)]
 
 
 @router.post("/jobs/{namespace}/pull")
@@ -147,12 +149,27 @@ def pull_job(namespace: str):
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
+@router.get("/jobs/{namespace}/results")
+def job_results(namespace: str):
+    try:
+        return {"entries": get_hub().result_tree(namespace)}
+    except HubError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
 @router.post("/discovery/{ssh}")
 def run_discovery(ssh: str, path: str | None = None):
     """Adopt jobs on the cluster. With ``path``, recursively search that remote
     dir for wes.status files (non-hidden only, no descent past a found status
     file); without it, scan for *_config.json under the remote workdir."""
-    return {"adopted": get_hub().discover(ssh, path)}
+    hub_ = get_hub()
+    if hub_.cluster_configs and ssh not in hub_.cluster_configs.values():
+        raise HTTPException(status_code=404, detail=f"cluster '{ssh}' is not configured")
+    adopted = hub_.discover(ssh, path)
+    return {
+        "adopted": adopted,
+        "jobs": [hub_.store.get_job(namespace) for namespace in adopted],
+    }
 
 
 @router.get("/clusters")
@@ -163,6 +180,8 @@ def clusters():
 @router.get("/clusters/{ssh}")
 def cluster(ssh: str, refresh: bool = False):
     hub_ = get_hub()
+    if hub_.cluster_configs and ssh not in hub_.cluster_configs.values():
+        raise HTTPException(status_code=404, detail=f"cluster '{ssh}' is not configured")
     if ssh not in hub_.clusters or refresh:
         hub_._refresh_cluster(ssh, max_age=0.0 if refresh else 30.0)
     if ssh not in hub_.clusters:

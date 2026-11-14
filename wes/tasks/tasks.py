@@ -23,6 +23,7 @@ class Task:
         branch: str = "",
         cleanup: bool = False,
         artifacts: list[str] | None = None,
+        progress_artifacts: list[str] | None = None,
         active_jobs: list[str] | None = None,
         state: State = State.PENDING,
         partition: str = "",
@@ -45,6 +46,9 @@ class Task:
         self.status = state
         self.jobs_ids: list[str] = active_jobs if active_jobs is not None else []
         self.artifacts: list[str] = artifacts if artifacts is not None else []
+        self.progress_artifacts: list[str] = (
+            progress_artifacts if progress_artifacts is not None else []
+        )
         self.partition = partition
         self.cpus = cpus
         self.gpus = gpus
@@ -70,6 +74,7 @@ class Task:
             f"job={self.job_script}, pre={self.pre_script}, "
             f"branch={self.branch}, cleanup_git={self.cleanup_git}, "
             f"artifacts={self.artifacts}, partition={self.partition}, "
+            f"progress_artifacts={self.progress_artifacts}, "
             f"cpus={self.cpus}, gpus={self.gpus}, memory={self.memory}, "
             f"time={self.time}, nodelist={self.nodelist})"
         )

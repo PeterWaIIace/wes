@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-from wes import WES
 
 import argparse
-import signal
-import time
+
+from wes import WES
+
 
 class WesParser:
-
     def __init__(self):
         self.parser = argparse.ArgumentParser(prog="wes")
         self.sub = self.parser.add_subparsers(dest="command")
@@ -42,7 +41,6 @@ class WesParser:
 
 
 def main() -> None:
-
     wes = WES()
     parser = WesParser()
 
@@ -60,7 +58,7 @@ def main() -> None:
 
     parser.add_sub(
         "check",
-        help="One time job discovery and check. It uses wes to find wes status files on the remote and return its state.",
+        help="Find remote WES status files and return their state",
         callback=lambda args: [wes.set_ssh(args.ssh), wes.check(refresh=args.refresh)][1],
         arguments=[
             {
@@ -79,7 +77,10 @@ def main() -> None:
     parser.add_sub(
         "clean",
         help="Remove remote WES job directories whose recorded state is FAILED",
-        callback=lambda args: [wes.set_ssh(args.ssh), wes.clean(dry_run=args.dry_run, refresh=args.refresh)][1],
+        callback=lambda args: [
+            wes.set_ssh(args.ssh),
+            wes.clean(dry_run=args.dry_run, refresh=args.refresh),
+        ][1],
         arguments=[
             {
                 "argument": "--ssh",
@@ -102,7 +103,7 @@ def main() -> None:
     parser.add_sub(
         "sync",
         help="One time sync job status for an SSH config",
-        callback= lambda args : [wes.set_ssh(args.ssh), wes.sync()][1],
+        callback=lambda args: [wes.set_ssh(args.ssh), wes.sync()][1],
         arguments=[
             {
                 "argument": "--ssh",
@@ -115,7 +116,10 @@ def main() -> None:
     parser.add_sub(
         "ls",
         help="List entries at a remote path",
-        callback=lambda args: [wes.set_ssh(args.ssh), wes.ls(lsdir=args.path, recursive=args.recursive, depth=args.depth)][1],
+        callback=lambda args: [
+            wes.set_ssh(args.ssh),
+            wes.ls(lsdir=args.path, recursive=args.recursive, depth=args.depth),
+        ][1],
         arguments=[
             {
                 "argument": "--ssh",

@@ -22,6 +22,7 @@ VALID_FIELDS = {
     "pre",
     "post",
     "artifacts",
+    "progress-artifacts",
     "cleanup",
     "partition",
     "cpus",
@@ -90,6 +91,7 @@ class WESParser:
             job_script=task_data["job"],
             pre_script=task_data.get("pre"),
             artifacts=task_data.get("artifacts", []),
+            progress_artifacts=task_data.get("progress-artifacts", []),
             partition=str(task_data.get("partition", "")),
             cpus=str(task_data.get("cpus", "")),
             gpus=str(task_data.get("gpus", "")),
@@ -120,7 +122,9 @@ def _validate_task(name: str, data: dict) -> None:
     if "pre" in data and (not isinstance(data["pre"], str) or not data["pre"].strip()):
         raise ConfigError(f"Task '{name}': 'pre' must be a non-empty string")
 
-    for field in ("run", "artifacts"):
+    for field in ("run", "artifacts", "progress-artifacts"):
         val = data.get(field)
         if val is not None and not isinstance(val, list):
             raise ConfigError(f"Task '{name}': '{field}' must be a list")
+        if val is not None and not all(isinstance(path, str) and path.strip() for path in val):
+            raise ConfigError(f"Task '{name}': '{field}' must contain non-empty paths")

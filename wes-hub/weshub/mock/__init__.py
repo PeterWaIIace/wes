@@ -8,7 +8,8 @@ source tree is never modified. `deactivate()` restores them.
 
 Usage:
 
-    wes-hub serve --mock            # server + demo pipeline
+    wes-hub serve --mock             # server with an empty mock cluster
+    wes-hub serve --mock-demo        # server with the demo pipeline
     uv run wes-hub serve --mock --port 8420
 """
 
@@ -40,8 +41,9 @@ def mock_config() -> dict[str, str]:
     return _CONFIG
 
 
-# NOTE: do not `cd` in the job script - wes's injected exit trap calls
-# ./wes_status.sh relative to the job dir, so a cd would break status updates.
+# NOTE: the mock demo job does not cd; with SLURM_ARRAY_TASK_ID unset the
+# injected snippet writes wes.status in the job dir. Real array jobs cd into
+# tasks/<index>/ (done by the injected snippet itself).
 DEMO_JOB = "#!/bin/bash\nset -e\nbash example-repo/run.sh\n"
 DEMO_PRE = "#!/bin/bash\necho 'pre-script ok'\n"
 DEMO_REPO_RUN = """#!/bin/bash

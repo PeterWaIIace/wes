@@ -38,7 +38,7 @@ def test_mock_full_flow(mock_hub):
     assert pipeline["name"] == "mock-demo"
 
     run = hub.trigger_run(pipeline["id"], trigger="manual")
-    assert run["status"] == "queued"
+    assert run["status"] == ""
 
     # drive the monitor until the run finishes (mock job sleeps ~4s)
     deadline = time.time() + 60
@@ -46,7 +46,7 @@ def test_mock_full_flow(mock_hub):
         hub.monitor_tick()
         run_now = hub.store.get_run(run["id"])
         jobs = hub.store.list_jobs(run["id"])
-        if run_now["status"] == "success" and jobs and jobs[0]["artifacts_pulled"]:
+        if run_now["status"] == "COMPLETED" and jobs and jobs[0]["artifacts_pulled"]:
             break
         if run_now["finished_at"]:
             pytest.fail(f"run finished badly: run={run_now} jobs={jobs}")

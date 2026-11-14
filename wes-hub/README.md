@@ -31,6 +31,8 @@ as a library - the `wes` package is never modified.
   the server; no extra per-job logic on the cluster.
 - **Results**: when a job reaches a finished state, artifacts and logs are
   pulled automatically under `<data-dir>/results/` and browsable at `/results`.
+  Task `progress-artifacts` are refreshed while the job is active; image files
+  appear as thumbnails in its expandable run-detail panel.
 - **Cluster view**: squeue jobs, node info and capacity (WesObserver).
 
 ## Install (dev)
@@ -97,15 +99,18 @@ python stand-ins in `weshub/mock/bin`. `sbatch` really executes the job in
 the background and the job scripts keep writing `wes.status`, so the whole
 protocol - dispatch, discovery, status, artifact download - works.
 
-On first start with `--mock` a `mock-demo` pipeline is seeded (it clones a
-local git repo from `<data-dir>/mock/repos/example-repo`). Dispatch it:
+`--mock` starts an empty mock cluster. Add `--mock-demo` to seed a
+`mock-demo` pipeline that clones a local Git repository from
+`<data-dir>/mock/repos/example-repo`. Dispatch it:
 
 ```bash
+uv run wes-hub serve --mock-demo
 curl -X POST localhost:8420/api/pipelines/1/dispatch
 ```
 
-and watch the run go queued -> running -> success in the UI; afterwards the
-artifacts are downloadable under http://localhost:8420/results/.
+and watch the run progress through server-reported `PENDING`, `RUNNING`, and
+`COMPLETED` states in the UI; afterwards the artifacts are downloadable under
+http://localhost:8420/results/.
 
 Gotchas the mock surfaced (also apply to real pipelines, see TODO.md):
 

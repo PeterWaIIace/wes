@@ -16,10 +16,12 @@ class Settings:
     poll_interval: float = 15.0
     scheduler_interval: float = 30.0
     discover_interval: float = 60.0
+    progress_interval: float = 100.0
     ssh_timeout: float = 45.0
     max_status_workers: int = 8
     catalog_repo: str = ""
     catalog_branch: str = "main"
+    mock_mode: bool = False
 
     @classmethod
     def from_file(cls, path: str | Path) -> Settings:
@@ -43,6 +45,7 @@ class Settings:
             "poll_interval",
             "scheduler_interval",
             "discover_interval",
+            "progress_interval",
             "ssh_timeout",
             "max_status_workers",
         }

@@ -65,6 +65,7 @@ class JobScanner:
             branch=t.get("branch", ""),
             cleanup=t.get("cleanup", False),
             artifacts=t.get("artifacts", []),
+            progress_artifacts=t.get("progress_artifacts", []),
             partition=t.get("partition", ""),
             cpus=t.get("cpus", ""),
             gpus=t.get("gpus", ""),

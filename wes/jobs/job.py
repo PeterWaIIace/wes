@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import glob
 import os
 import secrets
 import shlex
@@ -15,7 +16,6 @@ from wes.jobs.status import (
     JobStatus,
     StatusFile,
     inject_job_status,
-    inject_pre_status,
     now,
 )
 from wes.remote.runner import SshRunner
@@ -62,6 +62,10 @@ class SshItem(MirrorItem):
         print(f"Copying {self.h_path}/{self.h_name} to {self.r_path} result: {result}")
 
     def sync(self):
+        remote_pattern = f"{self.r_path}/{self.r_name}"
+        if glob.has_magic(remote_pattern):
+            self._sync_pattern(remote_pattern)
+            return
         print("SSHItem.sync()", self.r_path, self.r_name, "->", self.h_path, self.h_name)
         Path(self.h_path).mkdir(parents=True, exist_ok=True)
         ok = self.ssh.scp_from(self.r_path, self.r_name, self.h_path + "/", r=True)
@@ -71,6 +75,45 @@ class SshItem(MirrorItem):
                 f"{self.ssh.ssh_config}:{self.r_path}/{self.r_name}"
                 f" -> {self.h_path}/{self.h_name}"
             )
+
+    def _sync_pattern(self, remote_pattern: str) -> None:
+        """Expand a remote Bash glob and preserve each match's relative path."""
+        remote_root = artifact_pattern_root(remote_pattern)
+        local_root = artifact_pattern_root(f"{self.h_path}/{self.h_name}")
+        script = (
+            "shopt -s nullglob globstar; IFS=; "
+            f"pattern={shlex.quote(remote_pattern)}; "
+            'for path in $pattern; do '
+            'if [ -f "$path" ] || [ -d "$path" ]; then printf "%s\\n" "$path"; fi; '
+            "done"
+        )
+        ok, matches = self.ssh.run_command(f"bash -c {shlex.quote(script)}")
+        if not ok:
+            print(f"  ✗ could not expand artifact pattern: {remote_pattern}")
+            return
+        for match in dict.fromkeys(matches):
+            remote_path = Path(match)
+            relative_path = remote_path.relative_to(remote_root)
+            local_path = local_root / relative_path
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            copied = self.ssh.scp_from(
+                str(remote_path.parent), remote_path.name, str(local_path.parent) + "/", r=True
+            )
+            if not copied:
+                print(f"  ✗ artifact download failed: {self.ssh.ssh_config}:{match}")
+
+
+def artifact_pattern_root(pattern: str) -> Path:
+    """Return the directory prefix before the first glob component."""
+    root = Path(pattern).anchor
+    for component in Path(pattern).parts:
+        if component == root:
+            continue
+        if glob.has_magic(component):
+            break
+        root = os.path.join(root, component)
+    return Path(root or ".")
+
 
 class JobConfig(SshItem):
     def __init__(self, job: Job, task: Task, r_path: str, ssh_config: str):
@@ -98,6 +141,7 @@ class JobConfig(SshItem):
                 "branch": self.task.branch,
                 "cleanup": self.task.cleanup_git,
                 "artifacts": self.task.artifacts,
+                "progress_artifacts": self.task.progress_artifacts,
                 "partition": self.task.partition,
                 "cpus": self.task.cpus,
                 "gpus": self.task.gpus,
@@ -151,6 +195,7 @@ class Job:
 
         self.status_files = []
         self.artifacts = []
+        self.progress_artifacts = []
         self.script = None
         self.pre_script = None
 
@@ -232,9 +277,19 @@ class Job:
         self.artifacts = []
         for path in self.task.artifacts:
             h_path = f"results/{self.repo_dir}/{path}"
-            Path(h_path).parent.mkdir(parents=True, exist_ok=True)
+            if not glob.has_magic(h_path):
+                Path(h_path).parent.mkdir(parents=True, exist_ok=True)
             r_path = f"{self.repo_dir}/{path}"
             self.artifacts.append(SshItem(h_path=h_path, r_path=r_path, ssh_config=self.ssh_config))
+
+        for path in self.task.progress_artifacts:
+            h_path = f"results/{self.repo_dir}/{path}"
+            if not glob.has_magic(h_path):
+                Path(h_path).parent.mkdir(parents=True, exist_ok=True)
+            r_path = f"{self.repo_dir}/{path}"
+            self.progress_artifacts.append(
+                SshItem(h_path=h_path, r_path=r_path, ssh_config=self.ssh_config)
+            )
 
         for log_name in ("job_output.txt", "job_error.txt", STATUS_FILENAME):
             h_path = f"results/{self.job_dir}/{log_name}"
@@ -272,7 +327,12 @@ class Job:
         )
 
     def sync(self) -> None:
-        for item in (*self.artifacts, *self.status_files):
+        for item in (*self.artifacts, *self.progress_artifacts, *self.status_files):
+            item.sync()
+
+    def sync_progress(self) -> None:
+        """Refresh files declared as ``progress-artifacts`` during a job."""
+        for item in self.progress_artifacts:
             item.sync()
 
     def cleanup(self) -> None:
@@ -308,22 +368,20 @@ class Job:
         # one scratch dir for the staged copies; TemporaryDirectory removes it
         # after the uploads so nothing leaks into /tmp
         with tempfile.TemporaryDirectory(prefix="wes_upload_") as staging:
-            for item, transform in (
-                (self.script, inject_job_status),
-                (self.pre_script, inject_pre_status),
-            ):
-                if item is None:
-                    continue
-                self._upload(item, self._preprocess(item, transform, staging))
-        # the job's shell scripts create/update wes.status on the server via
-        # this helper (pre.sh before submit, job.sh while it runs)
+            self._upload(self.script, self._preprocess(self.script, inject_job_status, staging))
+        if self.pre_script is not None:
+            self._upload(self.pre_script, os.path.join(self.pre_script.h_path, self.pre_script.h_name))
+        # The job script creates/updates wes.status when it runs.
         self.status_file.write_helper()
 
     def _clone_repo(self) -> bool:
         git_name = self.task.git_url.split("/")[-1].replace(".git", "")
         ssh_opts = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
         if self.task.branch:
-            clone_cmd = f"GIT_SSH_COMMAND='ssh {ssh_opts}' git clone -b {self.task.branch} {self.task.git_url} {git_name}"
+            clone_cmd = (
+                f"GIT_SSH_COMMAND='ssh {ssh_opts}' git clone -b "
+                f"{self.task.branch} {self.task.git_url} {git_name}"
+            )
         else:
             clone_cmd = f"GIT_SSH_COMMAND='ssh {ssh_opts}' git clone {self.task.git_url} {git_name}"
         ok, result = self.job_ssh_client.cmd(clone_cmd)

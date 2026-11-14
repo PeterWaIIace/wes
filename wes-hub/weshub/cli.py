@@ -26,6 +26,11 @@ def main() -> None:
     serve.add_argument(
         "--mock", action="store_true", help="Run against a local mock cluster (no ssh/SLURM)"
     )
+    serve.add_argument(
+        "--mock-demo",
+        action="store_true",
+        help="Seed the mock demo pipeline (implies --mock)",
+    )
 
     disc = sub.add_parser("discover", help="Run job discovery once against a cluster and exit")
     disc.add_argument("--ssh", required=True, help="SSH config name (see ~/.ssh/config)")
@@ -69,7 +74,9 @@ def main() -> None:
         settings.data_dir = Path(os.path.abspath(args.data_dir))
     settings.ensure_dirs()
 
-    if args.mock:
+    use_mock = args.mock or args.mock_demo
+    settings.mock_mode = use_mock
+    if use_mock:
         from weshub import mock
 
         mock.setup(settings)
@@ -83,7 +90,7 @@ def main() -> None:
 
     app = create_app(settings)
 
-    if args.mock:
+    if args.mock_demo:
         from weshub import api as api_mod
 
         pipeline = mock.seed_demo_pipeline(api_mod.get_hub())

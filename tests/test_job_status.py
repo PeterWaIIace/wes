@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 import yaml
 
-from wes.jobs.job import Job, JobInfo
+from wes.jobs.job import Job, JobInfo, SshItem
 from wes.jobs.status import (
     STATUS_FILENAME,
     STATUS_HELPER_NAME,
@@ -18,6 +20,7 @@ from wes.jobs.status import (
     inject_pre_status,
     slurm_state,
 )
+from wes.jobs.status_sh_scripts import JOB_STATUS_SNIPPET
 from wes.states import State
 from wes.tasks import Task
 
@@ -30,6 +33,45 @@ def _task() -> Task:
         ssh_config="hpc",
         job_script="job.sh",
     )
+
+
+def _execute_artifact_glob(command):
+    result = subprocess.run(["bash", "-c", command], capture_output=True, text=True)
+    return result.returncode == 0, result.stdout.splitlines()
+
+
+@pytest.mark.parametrize(
+    "pattern, expected",
+    [
+        ("results/*/reward_chart.png", ["first run", "second"]),
+        ("results/**/reward_chart.png", ["first run", "second", "deep/nested"]),
+        ("results/second/reward_cha?t.[p]ng", ["second"]),
+        ("results/missing*/reward_chart.png", []),
+    ],
+)
+def test_artifact_patterns_preserve_relative_paths(tmp_path, monkeypatch, pattern, expected):
+    remote = tmp_path / "remote files"
+    local = tmp_path / "downloads"
+    for directory in ("first run", "second", "deep/nested"):
+        chart = remote / "results" / directory / "reward_chart.png"
+        chart.parent.mkdir(parents=True, exist_ok=True)
+        chart.write_text("chart")
+    runner = MagicMock()
+    runner.run_command.side_effect = _execute_artifact_glob
+    runner.scp_from.return_value = True
+    monkeypatch.setattr("wes.jobs.job.SshRunner", MagicMock(return_value=runner))
+    artifact = SshItem(str(local / pattern), str(remote / pattern), "hpc")
+
+    artifact.sync()
+
+    downloads = set()
+    for call in runner.scp_from.call_args_list:
+        remote_dir, filename, local_dir = call.args
+        relative_dir = Path(remote_dir).relative_to(remote / "results")
+        assert filename == "reward_chart.png"
+        assert Path(local_dir) == local / "results" / relative_dir
+        downloads.add(relative_dir.as_posix())
+    assert downloads == set(expected)
 
 
 def _run(cmd: str, script: str | None = None, **kwargs):
@@ -114,6 +156,24 @@ def test_status_roundtrip_with_wes_file() -> None:
     assert JobStatus.from_text(text) == status
 
 
+def test_array_status_roundtrip() -> None:
+    status = JobStatus(
+        task="sweep",
+        namespace="parent",
+        job_name="sweep_parent",
+        ssh="hpc",
+        parent_namespace="parent",
+        array_index="7",
+        job_id="100536_7",
+    )
+
+    parsed = JobStatus.from_text(status.to_text())
+
+    assert parsed.parent_namespace == "parent"
+    assert parsed.array_index == "7"
+    assert parsed.job_id == "100536_7"
+
+
 def test_status_from_text_unknown_state_is_pending() -> None:
     parsed = JobStatus.from_text("state: WAT")
     assert parsed.state is State.PENDING
@@ -158,13 +218,40 @@ def test_status_file_read_returns_none_when_missing() -> None:
         assert StatusFile("task/ns", "hpc").read() is None
 
 
+def test_status_file_job_dir_exists() -> None:
+    with patch("wes.jobs.status.SshRunner") as runner_cls:
+        runner = runner_cls.return_value
+        status_file = StatusFile("task/ns", "hpc")
+
+        runner.run_command.return_value = (True, ["yes"])
+        assert status_file.job_dir_exists() is True
+
+        runner.run_command.return_value = (True, ["no"])
+        assert status_file.job_dir_exists() is False
+
+        # ssh unreachable must not read as "missing" so callers don't prune
+        runner.run_command.return_value = (False, [])
+        assert status_file.job_dir_exists() is None
+
+        cmd = runner.run_command.call_args.args[0]
+        assert cmd == "if [ -d task/ns ]; then echo yes; else echo no; fi"
+        assert runner.run_command.call_args.kwargs["quiet"] is True
+
+
 def test_status_helper_script_writes_status_file() -> None:
     assert STATUS_FILENAME in STATUS_HELPER_SCRIPT
     assert "SLURM_JOB_ID" in STATUS_HELPER_SCRIPT
+    assert "SLURM_ARRAY_TASK_ID" in STATUS_HELPER_SCRIPT
     assert 'mv "$tmp" "$status"' in STATUS_HELPER_SCRIPT
     # the script-created file also records the source .wes file and task name
     assert 'json_get "$cfg" wes_file' in STATUS_HELPER_SCRIPT
     assert 'json_get "$cfg" name' in STATUS_HELPER_SCRIPT
+
+
+def test_job_snippet_uses_per_task_dir_for_arrays() -> None:
+    assert 'tasks/$SLURM_ARRAY_TASK_ID' in JOB_STATUS_SNIPPET
+    assert 'cd "$wes_status_dir"' in JOB_STATUS_SNIPPET
+    assert "WES_STATUS_CONFIG_DIR" in JOB_STATUS_SNIPPET
 
 
 def test_status_file_write_helper_uploads_executable(monkeypatch) -> None:
@@ -370,6 +457,106 @@ def test_injected_job_status_survives_directory_change(tmp_path) -> None:
     assert status_log.read_text().splitlines() == ["RUNNING", "COMPLETED"]
 
 
+def test_injected_array_status_uses_task_subdir(tmp_path) -> None:
+    status_log = tmp_path / "states"
+    helper = tmp_path / STATUS_HELPER_NAME
+    helper.write_text(f'#!/bin/bash\nprintf "%s %s\\n" "$1" "$PWD" >> "{status_log}"\n')
+    helper.chmod(0o755)
+    script = tmp_path / "job.sh"
+    script.write_text(inject_job_status("#!/bin/bash\nexit 0\n"))
+    env = {**os.environ, "SLURM_JOB_ID": "4242", "SLURM_ARRAY_TASK_ID": "3"}
+
+    subprocess.run(["bash", str(script)], check=True, env=env)
+
+    task_dir = tmp_path / "tasks" / "3"
+    assert task_dir.is_dir()
+    assert status_log.read_text().splitlines() == [
+        f"RUNNING {task_dir}",
+        f"COMPLETED {task_dir}",
+    ]
+
+
+@pytest.mark.parametrize("exit_code, expected_state", [(0, "COMPLETED"), (7, "FAILED")])
+def test_non_array_status_stays_in_job_dir(tmp_path, exit_code, expected_state) -> None:
+    helper = tmp_path / STATUS_HELPER_NAME
+    helper.write_text(STATUS_HELPER_SCRIPT)
+    helper.chmod(0o755)
+    config = {
+        "job": {"namespace": "single_ns", "job_name": "single", "ssh_config": "hpc"},
+        "task": {"name": "single", "wes_file": "single.wes"},
+    }
+    (tmp_path / "single_config.json").write_text(json.dumps(config, indent=4))
+    script = tmp_path / "job.sh"
+    script.write_text(inject_job_status(
+        '#!/bin/bash\ncp wes.status running.status\nmkdir work\ncd work\n'
+        f'exit {exit_code}\n'
+    ))
+    env = os.environ.copy()
+    for name in tuple(env):
+        if name.startswith("SLURM_ARRAY_"):
+            env.pop(name)
+    env.update(SLURM_SUBMIT_DIR=str(tmp_path), SLURM_JOB_ID="4242")
+
+    result = subprocess.run(["bash", str(script)], cwd=tmp_path, env=env)
+
+    assert result.returncode == exit_code
+    assert yaml.safe_load((tmp_path / "running.status").read_text())["state"] == "RUNNING"
+    status = yaml.safe_load((tmp_path / STATUS_FILENAME).read_text())
+    assert status["state"] == expected_state
+    assert status["namespace"] == "single_ns"
+    assert "array_index" not in status
+    assert not (tmp_path / "tasks").exists()
+    assert not (tmp_path / "work" / STATUS_FILENAME).exists()
+
+
+def test_array_status_file_lands_in_task_dir(tmp_path) -> None:
+    helper = tmp_path / STATUS_HELPER_NAME
+    helper.write_text(STATUS_HELPER_SCRIPT)
+    helper.chmod(0o755)
+    config = {
+        "job": {"namespace": "parent_ns", "job_name": "my_task_parent_ns", "ssh_config": "hpc"},
+        "task": {"name": "my_task", "wes_file": "sweep.wes"},
+    }
+    (tmp_path / "my_task_config.json").write_text(json.dumps(config, indent=4))
+    script = tmp_path / "job.sh"
+    script.write_text(inject_job_status("#!/bin/bash\nexit 0\n"))
+    env = {
+        **os.environ,
+        "SLURM_JOB_ID": "4242",
+        "SLURM_ARRAY_TASK_ID": "2",
+        "SLURM_NODELIST": "h86",
+        "SLURM_JOB_PARTITION": "gpu",
+    }
+
+    subprocess.run(["bash", str(script)], check=True, env=env)
+
+    assert not (tmp_path / STATUS_FILENAME).exists()
+    status = yaml.safe_load((tmp_path / "tasks" / "2" / STATUS_FILENAME).read_text())
+    assert status["task"] == "my_task"
+    assert status["namespace"] == "parent_ns_array_2"
+    assert status["array_index"] == "2"
+    assert status["parent_namespace"] == "parent_ns"
+    assert status["state"] == "COMPLETED"
+    assert status["node"] == "h86"
+    assert status["partition"] == "gpu"
+
+
+def test_array_directory_failure_stops_before_job_body(tmp_path) -> None:
+    (tmp_path / "tasks").write_text("blocks directory creation")
+    script = tmp_path / "job.sh"
+    script.write_text(inject_job_status('#!/bin/bash\ntouch body-ran\n'))
+    env = {
+        **os.environ,
+        "SLURM_SUBMIT_DIR": str(tmp_path),
+        "SLURM_ARRAY_TASK_ID": "2",
+    }
+
+    result = subprocess.run(["bash", str(script)], cwd=tmp_path, env=env)
+
+    assert result.returncode != 0
+    assert not (tmp_path / "body-ran").exists()
+
+
 def test_inject_pre_status_prepends_after_shebang() -> None:
     out = inject_pre_status("#!/bin/bash\nmodule load uv\n")
     lines = out.splitlines()
@@ -443,7 +630,7 @@ def test_upload_scripts_preprocesses_job_script(monkeypatch, tmp_path) -> None:
     assert (tmp_path / "job.sh").read_text() == SAMPLE_JOB_SH
 
 
-def test_upload_scripts_preprocesses_pre_script(monkeypatch, tmp_path) -> None:
+def test_upload_scripts_leaves_pre_script_unchanged(monkeypatch, tmp_path) -> None:
     (tmp_path / "job.sh").write_text(SAMPLE_JOB_SH)
     (tmp_path / "pre.sh").write_text("module load uv\n")
     task = _task()
@@ -453,8 +640,7 @@ def test_upload_scripts_preprocesses_pre_script(monkeypatch, tmp_path) -> None:
 
     job.upload_scripts()
 
-    assert f"./{STATUS_HELPER_NAME} PENDING" in uploaded["pre.sh"]
-    assert "module load uv" in uploaded["pre.sh"]
+    assert uploaded["pre.sh"] == "module load uv\n"
     assert (tmp_path / "pre.sh").read_text() == "module load uv\n"
 
 

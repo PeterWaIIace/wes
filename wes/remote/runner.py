@@ -83,7 +83,9 @@ class SshRunner:
         git_name = git_url.split("/")[-1].replace(".git", "")
         ssh_opts = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
         if branch:
-            clone_cmd = f"GIT_SSH_COMMAND='ssh {ssh_opts}' git clone -b {branch} {git_url} {dir}/{git_name}"
+            clone_cmd = (
+                f"GIT_SSH_COMMAND='ssh {ssh_opts}' git clone -b {branch} {git_url} {dir}/{git_name}"
+            )
         else:
             clone_cmd = f"GIT_SSH_COMMAND='ssh {ssh_opts}' git clone {git_url} {dir}/{git_name}"
         status, result = self.run_command(clone_cmd)
@@ -113,7 +115,7 @@ class SshRunner:
         src = f"{self.ssh_config}:{remote_path}/{tfile}"
         cmd = ["rsync", "-e", "ssh", src, cfile]
         if r:
-            cmd = ["rsync", "-r", "--no-inc-recursive", "-e", "ssh", src, cfile]
+            cmd = ["rsync", "-r", "--copy-links", "--no-inc-recursive", "-e", "ssh", src, cfile]
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if result.returncode != 0:
             stderr = result.stderr.strip()
