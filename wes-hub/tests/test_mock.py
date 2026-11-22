@@ -27,7 +27,11 @@ def mock_hub(tmp_path, monkeypatch):
     monkeypatch.chdir(data)  # wes resolves results/ against the CWD
     weshub_mock.setup(settings)
     weshub_mock.activate()
-    yield Hub(settings)
+    hub = Hub(settings)
+    yield hub
+    for future in hub._transfers.values():
+        future.result(timeout=10)
+    hub.stop()
     weshub_mock.deactivate()
 
 
@@ -46,9 +50,9 @@ def test_mock_full_flow(mock_hub):
         hub.monitor_tick()
         run_now = hub.store.get_run(run["id"])
         jobs = hub.store.list_jobs(run["id"])
-        if run_now["status"] == "COMPLETED" and jobs and jobs[0]["artifacts_pulled"]:
+        if run_now["status"] == "COMPLETED" and jobs:
             break
-        if run_now["finished_at"]:
+        if run_now["finished_at"] and run_now["status"] != "COMPLETED":
             pytest.fail(f"run finished badly: run={run_now} jobs={jobs}")
         time.sleep(0.5)
     else:
@@ -67,7 +71,12 @@ def test_mock_full_flow(mock_hub):
     cluster = hub.clusters["mock"]
     assert any(n["name"] == "mock-node1" for n in cluster["nodes"])
 
-    # artifacts landed in the local results tree (server CWD = data dir)
+    # Browse first; only an explicit selected download transfers results.
+    assert not list((Path() / "results").rglob("summary.txt"))
+    entries = hub.remote_artifact_tree(job["namespace"], "results")["entries"]
+    assert any(entry["name"] == "summary.txt" for entry in entries)
+    hub.pull_job(job["namespace"], ["results/summary.txt"])
+    hub._transfers[job["namespace"]].result(timeout=10)
     artifact_files = list((Path() / "results").rglob("summary.txt"))
     assert artifact_files, "no summary.txt pulled into results/"
     content = artifact_files[0].read_text()

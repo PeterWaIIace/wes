@@ -110,6 +110,7 @@ class JobStatus:
     job_id: str = ""
     parent_namespace: str = ""
     array_index: str = ""
+    artifact_dir: str = ""
     node: str = ""
     partition: str = ""
     updated: str = ""
@@ -129,6 +130,7 @@ class JobStatus:
             "job_id",
             "parent_namespace",
             "array_index",
+            "artifact_dir",
             "node",
             "partition",
             "message",
@@ -158,6 +160,7 @@ class JobStatus:
             job_id=str(data.get("job_id") or ""),
             parent_namespace=str(data.get("parent_namespace") or ""),
             array_index=str(data.get("array_index") or ""),
+            artifact_dir=str(data.get("artifact_dir") or ""),
             node=str(data.get("node") or ""),
             partition=str(data.get("partition") or ""),
             updated=str(data.get("updated") or ""),

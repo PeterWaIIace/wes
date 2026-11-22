@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 from wes.jobs.status import StatusFile
@@ -58,7 +59,9 @@ def test_array_directories_are_discovered_as_separate_jobs(mock_hub):
         with (cluster / relative_dir / "wes.status").open("a") as status_file:
             status_file.write(f"array_index={index}\nparent_namespace=ns\n")
 
-    adopted = mock_hub.discover("mock", "sweep")
+    with patch.object(mock_hub, "_task_for_dir", wraps=mock_hub._task_for_dir) as read_config:
+        adopted = mock_hub.discover("mock", "sweep")
+    assert read_config.call_count == 1
 
     assert set(adopted) == {"ns_array_2", "ns_array_3"}
     for index in ("2", "3"):

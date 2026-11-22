@@ -69,7 +69,8 @@ changes in the `wes` library itself once it becomes a PyPI package — until the
         itself (`settings.ssh_timeout`), wes should pass `timeout=` natively.
 - [x] `wes_status.sh` exit trap is invoked through an absolute path — a job
       script that `cd`s elsewhere still writes its final status. Array jobs
-      now run in `tasks/<SLURM_ARRAY_TASK_ID>/` with a `wes.status` per element.
+      keep `wes.status` per element in `tasks/<SLURM_ARRAY_TASK_ID>/` while
+      the workflow chooses its working directory.
 - [ ] Docker image + docker-compose example.
 - [ ] Auth for the hub API/UI (even a simple token).
 - [ ] Secrets: `.env`-style git credentials today; need a per-pipeline secret

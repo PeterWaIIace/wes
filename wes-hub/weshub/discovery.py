@@ -15,7 +15,48 @@ from __future__ import annotations
 
 import shlex
 
-from wes.jobs.status import STATUS_FILENAME
+from wes.jobs.status import STATUS_FILENAME, JobStatus
+
+
+def read_status_batch(runner, directories: list[str], allow_missing: bool = False) -> dict:
+    """Read a batch in one SSH command; fail rather than return a partial scan."""
+    if not directories:
+        return {}
+    paths = " ".join(shlex.quote(path) for path in directories)
+    command = (
+        f"for directory in {paths}; do "
+        "printf '\\n__WES_STATUS_BEGIN__%s\\n' \"$directory\"; "
+        f'if [ -f "$directory/{STATUS_FILENAME}" ]; then '
+        f'cat "$directory/{STATUS_FILENAME}" || exit 1; '
+        'else echo __WES_STATUS_MISSING__; fi; done'
+    )
+    ok, lines = runner.run_command(command)
+    if not ok:
+        raise RuntimeError("Could not read all discovered statuses")
+    statuses = {}
+    directory = None
+    content = []
+    for line in lines:
+        if line.startswith("__WES_STATUS_BEGIN__"):
+            if directory is not None:
+                statuses[directory] = parse_batch_status(content, allow_missing)
+            directory = line.removeprefix("__WES_STATUS_BEGIN__")
+            content = []
+        else:
+            content.append(line)
+    if directory is not None:
+        statuses[directory] = parse_batch_status(content, allow_missing)
+    if len(statuses) != len(directories):
+        raise RuntimeError("Incomplete discovery status batch")
+    return statuses
+
+
+def parse_batch_status(content: list[str], allow_missing: bool):
+    if content == ["__WES_STATUS_MISSING__"]:
+        if allow_missing:
+            return None
+        raise RuntimeError("A status file disappeared during discovery")
+    return JobStatus.from_text("\n".join(content))
 
 
 def _root_cmd(base_dir: str) -> str:
@@ -46,10 +87,10 @@ def find_status_dirs(runner, base_dir: str) -> list[str]:
     base_dir = base_dir.rstrip("/") or "/"
     ok, lines = runner.run_command(_root_cmd(base_dir))
     if not ok:
-        return []
+        raise RuntimeError(f"Could not inspect discovery root {base_dir}")
     if lines:
         return [base_dir]
     ok, lines = runner.run_command(_tree_cmd(base_dir))
     if not ok:
-        return []
+        raise RuntimeError(f"Discovery scan failed under {base_dir}")
     return lines

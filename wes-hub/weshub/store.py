@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import json
+from pathlib import Path
 import threading
 import time
 
@@ -52,13 +54,9 @@ def _cast_int(value: str) -> int:
 
 
 class Store:
-    """Thread-safe in-memory runtime store.
+    """Thread-safe store with optional atomically replaced restart snapshots."""
 
-    Pipelines, runs, jobs and array children live only for the lifetime of
-    the process; nothing is written to disk.
-    """
-
-    def __init__(self):
+    def __init__(self, path: Path | None = None):
         self.lock = threading.Lock()
         self._pipelines: dict[int, dict] = {}
         self._runs: dict[int, dict] = {}
@@ -67,6 +65,30 @@ class Store:
         self._next_pipeline_id = 1
         self._next_run_id = 1
         self._next_job_id = 1
+        self.path = path
+        if path is not None and path.exists():
+            snapshot = json.loads(path.read_text(encoding="utf-8"))
+            self._pipelines = {row["id"]: row for row in snapshot["pipelines"]}
+            self._runs = {row["id"]: row for row in snapshot["runs"]}
+            self._jobs = {row["namespace"]: row for row in snapshot["jobs"]}
+            self._next_pipeline_id = max(self._pipelines, default=0) + 1
+            self._next_run_id = max(self._runs, default=0) + 1
+            self._next_job_id = max((row["id"] for row in self._jobs.values()), default=0) + 1
+            counters = snapshot.get("next_ids", {})
+            self._next_pipeline_id = max(self._next_pipeline_id, counters.get("pipeline", 1))
+            self._next_run_id = max(self._next_run_id, counters.get("run", 1))
+            self._next_job_id = max(self._next_job_id, counters.get("job", 1))
+
+    def _save_locked(self) -> None:
+        if self.path is None:
+            return
+        snapshot = {"version": 1, "pipelines": list(self._pipelines.values()),
+                    "runs": list(self._runs.values()), "jobs": list(self._jobs.values()),
+                    "next_ids": {"pipeline": self._next_pipeline_id, "run": self._next_run_id,
+                                 "job": self._next_job_id}}
+        temporary = self.path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(snapshot), encoding="utf-8")
+        temporary.replace(self.path)
 
     # -- pipelines ---------------------------------------------------------
 
@@ -85,6 +107,7 @@ class Store:
                 "created_at": time.time(),
             }
             self._pipelines[pid] = row
+            self._save_locked()
             return dict(row)
 
     def update_pipeline(self, pid: int, **fields) -> dict | None:
@@ -95,11 +118,13 @@ class Store:
                 for key, value in fields.items():
                     if key in allowed and value is not None:
                         row[key] = value
+            self._save_locked()
             return dict(row) if row else None
 
     def delete_pipeline(self, pid: int) -> None:
         with self.lock:
             self._pipelines.pop(pid, None)
+            self._save_locked()
 
     def get_pipeline(self, pid: int) -> dict | None:
         with self.lock:
@@ -131,6 +156,7 @@ class Store:
                 "created_at": time.time(),
             }
             self._runs[rid] = row
+            self._save_locked()
             return dict(row)
 
     def delete_run(self, run_id: int) -> None:
@@ -138,6 +164,7 @@ class Store:
             self._runs.pop(run_id, None)
             for ns in [ns for ns, row in self._jobs.items() if row["run_id"] == run_id]:
                 del self._jobs[ns]
+            self._save_locked()
 
     def update_run(self, run_id: int, status: str, finished_at: float | None = None) -> None:
         with self.lock:
@@ -147,6 +174,7 @@ class Store:
             row["status"] = status
             if finished_at is not None:
                 row["finished_at"] = finished_at
+            self._save_locked()
 
     def get_run(self, run_id: int) -> dict | None:
         with self.lock:
@@ -187,7 +215,10 @@ class Store:
                 row.update(data)
                 self._jobs[namespace] = row
             else:
+                if all(row.get(key) == value for key, value in data.items()):
+                    return row["id"]
                 row.update(data)
+            self._save_locked()
             return row["id"]
 
     def get_job(self, namespace: str) -> dict | None:
@@ -200,6 +231,7 @@ class Store:
             self._jobs.pop(namespace, None)
             for key in [k for k in self._array_children if k[0] == namespace]:
                 del self._array_children[key]
+            self._save_locked()
 
     def list_jobs(self, run_id: int | None = None) -> list[dict]:
         with self.lock:
@@ -213,7 +245,10 @@ class Store:
         with self.lock:
             row = self._jobs.get(namespace)
             if row is not None:
+                if all(row.get(key) == value for key, value in fields.items()):
+                    return
                 row.update(fields)
+                self._save_locked()
 
     def link_job(self, namespace: str, run_id: int, pipeline_id: int) -> None:
         with self.lock:
@@ -221,6 +256,7 @@ class Store:
             if row is not None:
                 row["run_id"] = run_id
                 row["pipeline_id"] = pipeline_id
+                self._save_locked()
 
     # -- array children ----------------------------------------------------
 

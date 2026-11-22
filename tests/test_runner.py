@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from unittest.mock import patch
+import subprocess
 
 from wes.remote.runner import SshRunner
 
@@ -53,3 +54,17 @@ def test_run_command_quiet_suppresses_command_output(capsys) -> None:
 
     assert ssh_run.call_args.kwargs["quiet"] is True
     assert capsys.readouterr().out == ""
+
+
+def test_ssh_timeout_returns_failure():
+    with patch("wes.remote.runner.subprocess.run") as run:
+        run.side_effect = subprocess.TimeoutExpired("ssh", 45)
+        assert SshRunner("hpc").run_command("hostname", quiet=True) == (False, [])
+        assert run.call_args.kwargs["timeout"] > 0
+
+
+def test_artifact_download_has_subprocess_deadline():
+    with patch("wes.remote.runner.subprocess.run") as run:
+        run.return_value = _FakeResult(0)
+        assert SshRunner("hpc").scp_from("job", "results", "local/", r=True)
+        assert run.call_args.kwargs["timeout"] > 0

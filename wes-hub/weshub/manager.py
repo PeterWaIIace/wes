@@ -13,33 +13,40 @@ long-lived server), so dispatch is orchestrated here over ``WESParser`` +
 from __future__ import annotations
 
 import dataclasses
+import glob
 import shlex
 import shutil
 import subprocess
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import yaml
 from wes.cluster import Cluster
-from wes.jobs.job import Job, SshItem
+from wes.jobs.job import Job, SshItem, ArtifactItem, resolve_artifact_pattern
 from wes.jobs.query import JobsQuery
 from wes.jobs.scanner import JobScanner
-from wes.jobs.status import STATUS_FILENAME, JobStatus, StatusFile, slurm_state
+from wes.jobs.status import STATUS_FILENAME, JobStatus, StatusFile, slurm_state, now
 from wes.parser import ConfigError, WESParser
 from wes.states import FINISHED_STATES, State
 from wes.tasks.tasks import Task
+from wes.remote.runner import SshRunner
+from wes.remote.tree import inspect_remote_patterns, list_remote_directory
 
 from weshub.config import Settings
 from weshub.cron import Cron, CronError
-from weshub.discovery import find_status_dirs
+from weshub.discovery import find_status_dirs, read_status_batch
 from weshub.store import Store
 
 
 class HubError(Exception):
     """Raised on user-facing hub errors (bad pipeline spec, unknown job...)."""
+
+    def __init__(self, message: str, status_code: int = 400):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def _iso(ts: float | None) -> str:
@@ -51,6 +58,10 @@ def run_status(job_states: list[str]) -> str:
         return ""
     if all(s == State.COMPLETED.value for s in job_states):
         return State.COMPLETED.value
+    if any(s == State.RUNNING.value for s in job_states):
+        return State.RUNNING.value
+    if any(s in ("", State.PENDING.value) for s in job_states):
+        return State.PENDING.value
     if any(s == State.FAILED.value for s in job_states):
         return State.FAILED.value
     if any(s == State.CANCELLED.value for s in job_states):
@@ -111,6 +122,7 @@ class DiscoveredJob:
         namespace: str,
         job_name: str,
         job_dir: str | None = None,
+        status: JobStatus | None = None,
     ):
         self.task = task
         self.ssh_config = ssh_config
@@ -123,16 +135,18 @@ class DiscoveredJob:
         self.repo_dir = f"{self.job_dir}/{git_name}"
         if parent_job_dir(self.job_dir) != self.job_dir:
             self.repo_dir = self.job_dir
+        if status is not None and status.artifact_dir:
+            self.repo_dir = status.artifact_dir
         self.status_file = StatusFile(self.job_dir, ssh_config)
-        self.status = JobStatus(
+        self.status = status or JobStatus(
             task=task.name, namespace=namespace, job_name=job_name, ssh=ssh_config
         )
         self.artifacts = [
-            SshItem(f"results/{self.repo_dir}/{path}", f"{self.repo_dir}/{path}", ssh_config)
+            ArtifactItem(f"results/{self.repo_dir}/{path}", f"{self.repo_dir}/{path}", ssh_config, self)
             for path in task.artifacts
         ]
         self.progress_artifacts = [
-            SshItem(f"results/{self.repo_dir}/{path}", f"{self.repo_dir}/{path}", ssh_config)
+            ArtifactItem(f"results/{self.repo_dir}/{path}", f"{self.repo_dir}/{path}", ssh_config, self)
             for path in task.progress_artifacts
         ]
         self.status_files = [
@@ -151,6 +165,16 @@ class DiscoveredJob:
         for item in self.progress_artifacts:
             item.sync()
 
+    def set_artifact_dir(self, directory: str) -> None:
+        self.repo_dir = directory
+        self.artifacts = []
+        self.progress_artifacts = []
+        for patterns, target in ((self.task.artifacts, self.artifacts),
+                                 (self.task.progress_artifacts, self.progress_artifacts)):
+            for pattern in patterns:
+                remote = f"{directory}/{pattern}"
+                target.append(ArtifactItem(f"results/{remote}", remote, self.ssh_config, self))
+
 
 class JobRecord:
     def __init__(self, job: Job, run_id: int | None, pipeline_id: int | None, discovered: bool):
@@ -161,6 +185,8 @@ class JobRecord:
         self.pulled = False
         self.last_state = ""
         self.last_progress_pull = 0.0
+        self.last_result_attempt = 0.0
+        self.final_progress_pulled = False
         self.status_seen = False
         # jobs in the process of creation live only in the runtime registry;
         # the store row is written once a server-side wes.status exists
@@ -171,7 +197,7 @@ class Hub:
     def __init__(self, settings: Settings):
         self.settings = settings
         settings.ensure_dirs()
-        self.store = Store()
+        self.store = Store(settings.data_dir / "hub-state.json")
         self.lock = threading.Lock()
         self.registry: dict[str, JobRecord] = {}
         self.clusters: dict[str, dict] = {}
@@ -180,6 +206,39 @@ class Hub:
         self._last_discover = 0.0
         self._last_cluster: dict[str, float] = {}
         self.cluster_configs: dict[str, str] = {}
+        SshRunner.command_timeout = settings.ssh_timeout
+        self._transfer_pool = ThreadPoolExecutor(max_workers=2)
+        self._status_pool = ThreadPoolExecutor(max_workers=settings.max_status_workers)
+        self._status_tasks = {}
+        self._transfers = {}
+        self._restore_jobs()
+
+    def _restore_jobs(self) -> None:
+        for row in self.store.list_jobs():
+            if not row.get("job_dir") or not row.get("task_config"):
+                continue
+            task = Task(**row["task_config"])
+            status = JobStatus(task.name, row["namespace"], row["job_name"], row["ssh"],
+                               job_id=row.get("job_id", ""), array_index=row.get("array_index", ""),
+                               parent_namespace=row.get("parent_namespace", ""),
+                               artifact_dir=row.get("artifact_dir", ""))
+            job = DiscoveredJob(task, row["ssh"], row["namespace"], row["job_name"], row["job_dir"], status)
+            rec = JobRecord(job, row["run_id"], row["pipeline_id"], bool(row["discovered"]))
+            rec.persisted = True
+            rec.last_state = row["state"]
+            rec.pulled = bool(row["artifacts_pulled"])
+            self.registry[job.namespace] = rec
+
+    def _save_job_location(self, job) -> None:
+        names = ("name", "git_url", "ssh_config", "wes_file", "job_script", "pre_script",
+                 "artifacts", "progress_artifacts")
+        task_config = {}
+        for name in names:
+            if hasattr(job.task, name):
+                task_config[name] = getattr(job.task, name)
+        if "git_url" not in task_config:
+            task_config["git_url"] = ""
+        self.store.upsert_job(job.namespace, job_dir=getattr(job, "job_dir", ""), task_config=task_config)
 
     # ------------------------------------------------------------------ #
     # pipelines                                                          #
@@ -270,7 +329,10 @@ class Hub:
         try:
             self._sync_catalog_repo()
             manifest_path = self.settings.catalog_dir / ".weshub.yaml"
-            manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+            if manifest_path.is_file():
+                manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+            else:
+                manifest = self._infer_catalog_manifest()
         except (OSError, subprocess.CalledProcessError, yaml.YAMLError) as e:
             raise HubError(f"catalog sync failed: {e}") from e
         if not isinstance(manifest, dict):
@@ -308,11 +370,7 @@ class Hub:
                 relative_file = wes_file.relative_to(self.settings.catalog_dir)
                 raise HubError(f"workflow '{name}' file not found: {relative_file}")
             wes_yaml = wes_file.read_text(encoding="utf-8")
-            assets = {
-                str(path.relative_to(source_dir)): path.read_text(encoding="utf-8")
-                for path in source_dir.rglob("*")
-                if path.is_file() and path != wes_file and ".git" not in path.parts
-            }
+            assets = self._catalog_assets(source_dir, wes_file)
             existing = self.store.get_pipeline_by_name(name)
             if existing:
                 self.update_pipeline(existing["id"], wes_yaml=wes_yaml, ssh=cluster)
@@ -322,6 +380,51 @@ class Hub:
                 pipeline = self.create_pipeline(name, wes_yaml, cluster, assets=assets)
             imported.append(pipeline)
         return imported
+
+    def _infer_catalog_manifest(self) -> dict:
+        """Import runnable .wes files directly when no explicit manifest exists."""
+        catalog = self.settings.catalog_dir.resolve()
+        workflows = []
+        clusters = {}
+        for wes_file in sorted(catalog.rglob("*.wes")):
+            relative = wes_file.relative_to(catalog)
+            if any(part.startswith(".") for part in relative.parts):
+                continue
+            try:
+                tasks = WESParser().parse(wes_file)
+                if not tasks:
+                    raise ConfigError("workflow has no tasks")
+                for task in tasks:
+                    for script in (task.job_script, task.pre_script):
+                        if not script:
+                            continue
+                        path = (wes_file.parent / script).resolve()
+                        if not path.is_relative_to(wes_file.parent) or not path.is_file():
+                            raise ConfigError(f"missing workflow script: {script}")
+                for task in tasks:
+                    clusters[task.ssh_config] = task.ssh_config
+            except (ConfigError, OSError) as error:
+                print(f"[hub] skipping catalog file {relative}: {error}")
+                continue
+            workflows.append({"name": relative.with_suffix("").as_posix(),
+                              "path": relative.parent.as_posix(), "file": relative.name})
+        if not workflows:
+            raise HubError(f"No runnable .wes workflows found in {catalog}; add workflows or .weshub.yaml")
+        return {"clusters": clusters, "workflows": workflows}
+
+    def _catalog_assets(self, source_dir: Path, wes_file: Path) -> dict[str, str]:
+        assets = {}
+        for path in source_dir.rglob("*"):
+            relative = path.relative_to(source_dir)
+            if any(part.startswith(".") for part in relative.parts):
+                continue
+            if path == wes_file or not path.is_file():
+                continue
+            try:
+                assets[str(relative)] = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+        return assets
 
     def _missing_assets(self, tasks: list[Task]) -> list[str]:
         missing = []
@@ -371,7 +474,7 @@ class Hub:
     def update_pipeline(self, pid: int, **fields) -> dict:
         pipeline = self.get_pipeline(pid)
         if not pipeline:
-            raise HubError(f"pipeline {pid} not found")
+            raise HubError(f"pipeline {pid} not found", 404)
         if "wes_yaml" in fields and fields["wes_yaml"]:
             self._validate(fields["wes_yaml"])
         if "cron" in fields and fields["cron"]:
@@ -390,7 +493,7 @@ class Hub:
     def reschedule(self, pid: int) -> dict:
         pipeline = self.get_pipeline(pid)
         if not pipeline:
-            raise HubError(f"pipeline {pid} not found")
+            raise HubError(f"pipeline {pid} not found", 404)
         if pipeline["cron"] and pipeline["enabled"]:
             nxt = Cron(pipeline["cron"]).next_run(datetime.now()).timestamp()
         else:
@@ -407,7 +510,7 @@ class Hub:
     def get_pipeline(self, pid: int) -> dict:
         pipeline = self.store.get_pipeline(pid)
         if not pipeline:
-            raise HubError(f"pipeline {pid} not found")
+            raise HubError(f"pipeline {pid} not found", 404)
         runs = self.store.list_runs(pid, limit=1)
         pipeline["next_run_at_iso"] = _iso(pipeline.get("next_run_at"))
         pipeline["last_run"] = runs[0] if runs else None
@@ -534,6 +637,7 @@ class Hub:
             discovered=int(rec.discovered),
         )
         rec.persisted = True
+        self._save_job_location(job)
 
     def _persist(self, rec: JobRecord) -> None:
         """Write the store row for a job once it is status-backed on the server
@@ -551,6 +655,7 @@ class Hub:
             ssh=rec.job.ssh_config,
             discovered=int(rec.discovered),
         )
+        self._save_job_location(rec.job)
 
     def discover(self, ssh: str, path: str | None = None) -> list[str]:
         """Job discovery: adopt jobs that have a ``wes.status`` on the cluster.
@@ -616,6 +721,8 @@ class Hub:
                 continue
             if not rec.persisted:
                 continue
+            if any(row.get("parent_namespace") == ns for row in self.store.list_jobs()):
+                continue
             job = rec.job
             known = set(getattr(job.task, "jobs_ids", []))
             stored = self.store.get_job(ns) or {}
@@ -634,47 +741,59 @@ class Hub:
         scanner = JobScanner(ssh)
         try:
             job_dirs = find_status_dirs(scanner.runner, path)
+            statuses = read_status_batch(scanner.runner, job_dirs)
         except Exception as e:  # noqa: BLE001
             print(f"[hub] status discovery on {ssh}:{path} failed: {e}")
             return [], None
         known = set(self.registry)
         adopted = []
         seen = set()
+        task_cache = {}
+        scan_complete = True
         for raw_dir in job_dirs:
             try:
-                status = StatusFile(raw_dir, ssh).read()
+                status = statuses[raw_dir]
                 if not status or not status.namespace:
+                    scan_complete = False
                     continue
                 status = independent_task_status(status)
                 job_dir = raw_dir
                 seen.add(status.namespace)
                 if status.namespace in known:
                     continue
-                task = self._task_for_dir(scanner, job_dir, status, ssh)
+                config_dir = parent_job_dir(job_dir) if status.array_index else job_dir
+                if config_dir not in task_cache:
+                    task_cache[config_dir] = self._task_for_dir(scanner, job_dir, status, ssh)
+                task = task_cache[config_dir]
                 job = DiscoveredJob(
                     task,
                     status.ssh or ssh,
                     status.namespace,
                     status.job_name or status.namespace,
                     job_dir=job_dir,
+                    status=status,
                 )
                 job.status = status
             except Exception as e:  # noqa: BLE001
                 print(f"[hub] skipping broken status dir {raw_dir}: {e}")
+                scan_complete = False
                 continue
             known.add(status.namespace)
             existing = self.store.get_job(status.namespace)
+            parent = self.store.get_job(status.parent_namespace) if status.parent_namespace else None
             rec = JobRecord(
                 job,
-                existing["run_id"] if existing else None,
-                existing["pipeline_id"] if existing else None,
+                (existing or parent or {}).get("run_id"),
+                (existing or parent or {}).get("pipeline_id"),
                 discovered=True,
             )
             self._register(job, rec)
+            self.store.upsert_job(status.namespace, parent_namespace=status.parent_namespace,
+                                  array_index=status.array_index)
             # the status was just read over ssh - store it without re-reading
             self._store_status(rec, status)
             adopted.append(status.namespace)
-        return adopted, seen
+        return adopted, seen if scan_complete else None
 
     def _task_for_dir(self, scanner: JobScanner, job_dir: str, status: JobStatus, ssh: str) -> Task:
         """Full task spec if the job dir carries a *_config.json, else a minimal one."""
@@ -730,49 +849,98 @@ class Hub:
         hung cluster could otherwise stall the monitor loop.
         """
         timeout = timeout or self.settings.ssh_timeout
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(fn, *args)
-            try:
-                return future.result(timeout=timeout)
-            except TimeoutError:
-                print(f"[hub] timeout after {timeout}s: {getattr(fn, '__name__', fn)}")
-                return None
+        pool = ThreadPoolExecutor(max_workers=1)
+        future = pool.submit(fn, *args)
+        try:
+            return future.result(timeout=timeout)
+        except FutureTimeoutError:
+            print(f"[hub] timeout after {timeout}s: {getattr(fn, '__name__', fn)}")
+            return None
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
 
-    def _pull_results(self, rec: JobRecord) -> None:
+    def _pull_results(self, rec: JobRecord, paths: list[str] | None = None) -> None:
         job = rec.job
         print(f"[hub] pulling results for {job.job_name}")
+        rec.pulled = False
+        self.store.upsert_job(job.namespace, transfer_state="downloading", artifacts_pulled=0)
+        outcomes = []
         try:
-            for item in job.artifacts + job.status_files:
-                item.sync()
+            items = job.artifacts + job.status_files + getattr(job, "progress_artifacts", [])
+            if paths is not None:
+                items = self._selected_artifact_items(rec, paths)
+            for item in items:
+                result = item.sync()
+                if result is not None:
+                    outcomes.append({"path": f"{item.r_path}/{item.r_name}", **dataclasses.asdict(result)})
         except Exception as e:  # noqa: BLE001
             print(f"[hub] pull failed for {job.job_name}: {e}")
+            self.store.upsert_job(job.namespace, transfer_state="failed", transfer_error=str(e))
             return
-        rec.pulled = True
-        self.store.set_job_state(job.namespace, rec.last_state, artifacts_pulled=1)
+        failed = any(item["state"] == "failed" for item in outcomes)
+        missing = any(item["state"] == "missing" for item in outcomes)
+        self.store.upsert_job(
+            job.namespace, transfer_state="failed" if failed else "partial" if missing else "downloaded",
+            transfer_outcomes=outcomes, transfer_updated=now(),
+            transfer_error="; ".join(item["error"] for item in outcomes if item["error"]),
+        )
+        if failed:
+            rec.pulled = False
+            return
+        rec.pulled = paths is None
+        self.store.set_job_state(job.namespace, rec.last_state, artifacts_pulled=int(paths is None))
 
     def _pull_progress(self, rec: JobRecord) -> None:
-        if not rec.job.progress_artifacts:
+        if not getattr(rec.job, "progress_artifacts", []):
             return
         try:
-            rec.job.sync_progress()
+            outcomes = []
+            for item in rec.job.progress_artifacts:
+                result = item.sync()
+                if result is not None:
+                    outcomes.append({"pattern": f"{item.r_path}/{item.r_name}", **dataclasses.asdict(result)})
+            self.store.upsert_job(rec.job.namespace, progress_outcomes=outcomes, progress_updated=now())
+            if record_is_terminal(rec) and not any(item["state"] in ("failed", "pending") for item in outcomes):
+                rec.final_progress_pulled = True
             rec.last_progress_pull = time.time()
         except Exception as e:  # noqa: BLE001
             print(f"[hub] progress pull failed for {rec.job.job_name}: {e}")
 
-    def pull_job(self, namespace: str) -> dict:
+    def pull_job(self, namespace: str, paths: list[str] | None = None) -> dict:
         rec = self.registry.get(namespace)
         if not rec:
-            raise HubError(f"job {namespace} not found")
-        self._bounded(self._pull_results, rec)
-        if not rec.pulled:
-            raise HubError(f"pull timed out for {namespace}")
+            raise HubError(f"job {namespace} not found", 404)
+        if paths is not None:
+            if not paths or len(paths) > 100:
+                raise HubError("Select between 1 and 100 files or directories")
+            self._validate_artifact_paths(rec, paths)
+        if not self._queue_transfer(rec, progress=False, paths=paths):
+            raise HubError("Download queue is busy; retry shortly", 503)
         return self.store.get_job(namespace)
+
+    def _queue_transfer(self, rec: JobRecord, progress: bool, paths: list[str] | None = None) -> bool:
+        with self.lock:
+            future = self._transfers.get(rec.job.namespace)
+            if future is not None and not future.done():
+                return paths is None
+            if sum(not item.done() for item in self._transfers.values()) >= 4:
+                return False
+            function = self._pull_progress if progress else self._pull_results
+            if not progress:
+                rec.last_result_attempt = time.time()
+                self.store.upsert_job(rec.job.namespace, transfer_state="queued", transfer_error="")
+            if progress:
+                future = self._transfer_pool.submit(function, rec)
+            else:
+                future = self._transfer_pool.submit(function, rec, paths)
+            self._transfers[rec.job.namespace] = future
+            return True
 
     def result_tree(self, namespace: str) -> list[dict]:
         """List the locally pulled result files for one job."""
         job = self.store.get_job(namespace)
         if not job:
-            raise HubError(f"job {namespace} not found")
+            raise HubError(f"job {namespace} not found", 404)
         rec = self.registry.get(namespace)
         job_dir = rec.job.job_dir if rec else f"{job['task']}/{namespace}"
         results_root = self.settings.results_dir.resolve()
@@ -799,6 +967,97 @@ class Hub:
             ]
 
         return entries(root)
+
+    def _artifact_roots(self, rec: JobRecord) -> list[dict]:
+        patterns = []
+        artifact_patterns = []
+        for pattern in rec.job.task.artifacts:
+            resolved = resolve_artifact_pattern(pattern, rec.job.status)
+            if resolved is not None:
+                artifact_patterns.append(resolved)
+        combined = list(artifact_patterns)
+        for pattern in rec.job.task.progress_artifacts:
+            resolved = resolve_artifact_pattern(pattern, rec.job.status)
+            if resolved is None:
+                continue
+            if any(not glob.has_magic(root) and resolved.startswith(root.rstrip("/") + "/")
+                   for root in artifact_patterns):
+                continue
+            combined.append(resolved)
+        for pattern in combined:
+            patterns.append(f"{rec.job.repo_dir}/{pattern}")
+        try:
+            return inspect_remote_patterns(rec.job.status_file.runner, patterns)
+        except RuntimeError as error:
+            raise HubError(str(error), 502) from error
+
+    def _validate_artifact_paths(self, rec: JobRecord, paths: list[str]) -> list[str]:
+        roots = self._artifact_roots(rec)
+        remote_paths = []
+        for path in paths:
+            relative = PurePosixPath(path)
+            if relative.is_absolute() or ".." in relative.parts:
+                raise HubError(f"Artifact path must stay inside configured results: {path}")
+            remote = PurePosixPath(rec.job.repo_dir) / relative
+            allowed = False
+            for root in roots:
+                root_path = PurePosixPath(root["path"])
+                if remote == root_path or (root["directory"] and remote.is_relative_to(root_path)):
+                    allowed = True
+                    break
+            if not allowed:
+                raise HubError(f"Path is not a configured artifact: {path}")
+            remote_paths.append(str(remote))
+        return remote_paths
+
+    def _selected_artifact_items(self, rec: JobRecord, paths: list[str]) -> list[SshItem]:
+        items = []
+        for remote in self._validate_artifact_paths(rec, paths):
+            items.append(SshItem(f"results/{remote}", remote, rec.job.ssh_config))
+        return items
+
+    def remote_artifact_tree(self, namespace: str, path: str = "", offset: int = 0) -> dict:
+        rec = self.registry.get(namespace)
+        if rec is None:
+            raise HubError(f"job {namespace} not found", 404)
+        if offset < 0:
+            raise HubError("offset must be nonnegative")
+        roots = self._artifact_roots(rec)
+        next_offset = None
+        if path:
+            remote = self._validate_artifact_paths(rec, [path])[0]
+            try:
+                page = list_remote_directory(rec.job.status_file.runner, remote, offset)
+            except (RuntimeError, ValueError) as error:
+                raise HubError(str(error), 502) from error
+            entries = page["entries"]
+            next_offset = page["next_offset"]
+        else:
+            entries = []
+            directory_roots = [root for root in roots if root["directory"]]
+            for root in roots:
+                covered = any(
+                    other["directory"] and other["path"] != root["path"]
+                    and PurePosixPath(root["path"]).is_relative_to(PurePosixPath(other["path"]))
+                    for other in directory_roots
+                )
+                if not covered:
+                    entries.append(root)
+            entries.sort(key=artifact_entry_sort_key)
+            next_offset = offset + 200 if len(entries) > offset + 200 else None
+            entries = entries[offset:offset + 200]
+        described = []
+        local_root = self.settings.results_dir.resolve()
+        for entry in entries:
+            remote = PurePosixPath(entry["path"])
+            relative = remote.relative_to(PurePosixPath(rec.job.repo_dir)).as_posix()
+            local_relative = str(remote).lstrip("/")
+            local = (local_root / local_relative).resolve()
+            downloaded = local.is_relative_to(local_root) and local.is_file()
+            described.append({**entry, "path": relative, "downloaded": downloaded,
+                              "local_path": local_relative if downloaded else None})
+        return {"entries": described, "next_offset": next_offset, "path": path,
+                "source": "remote", "namespace": namespace}
 
     def _task_for_job(self, job: dict) -> Task | None:
         with self.lock:
@@ -882,7 +1141,11 @@ class Hub:
         progress = []
         seen_paths = set()
         for path in task.progress_artifacts if task else []:
-            for local_path in sorted((results_root / job_dir).glob(path)):
+            status = rec.job.status if rec else JobStatus("", "", "", "", job_id=job.get("job_id", ""), array_index=job.get("array_index", ""))
+            resolved = resolve_artifact_pattern(path, status)
+            if resolved is None:
+                continue
+            for local_path in sorted((results_root / job_dir.lstrip("/")).glob(resolved)):
                 try:
                     relative_path = local_path.resolve().relative_to(results_root).as_posix()
                 except ValueError:
@@ -895,15 +1158,52 @@ class Hub:
                         "path": relative_path,
                         "thumbnail": local_path.suffix.lower()
                         in {".gif", ".jpeg", ".jpg", ".png", ".webp"},
+                        "version": local_path.stat().st_mtime_ns,
                     }
                 )
         return {
             **job,
             "execution": self.job_execution(job),
             "progress_artifacts": progress,
+            "artifact_patterns": task.artifacts if task else [],
+            "progress_patterns": task.progress_artifacts if task else [],
+            "artifact_config_source": job.get("artifact_config_source", "submission snapshot"),
         }
 
+    def refresh_artifact_config(self, namespace: str) -> dict:
+        rec = self.registry.get(namespace)
+        if rec is None:
+            raise HubError(f"job {namespace} not found", 404)
+        matches = []
+        for pipeline in self.store.list_pipelines():
+            if rec.pipeline_id is not None and pipeline["id"] != rec.pipeline_id:
+                continue
+            for task in self._parse_tasks(pipeline["id"]):
+                if task.name == rec.job.task.name:
+                    matches.append(task)
+        if len(matches) != 1:
+            raise HubError("Artifact refresh requires exactly one matching workflow task")
+        current = matches[0]
+        rec.job.task.artifacts = current.artifacts
+        rec.job.task.progress_artifacts = current.progress_artifacts
+        rec.job.artifacts = []
+        rec.job.progress_artifacts = []
+        for paths, target in ((current.artifacts, rec.job.artifacts),
+                              (current.progress_artifacts, rec.job.progress_artifacts)):
+            for path in paths:
+                remote = f"{rec.job.repo_dir}/{path}"
+                target.append(ArtifactItem(f"results/{remote}", remote, rec.job.ssh_config, rec.job))
+        self._save_job_location(rec.job)
+        rec.pulled = False
+        self.store.upsert_job(namespace, artifact_config_source="current workflow", artifacts_pulled=0)
+        rec.final_progress_pulled = False
+        self._queue_transfer(rec, progress=True)
+        return self.enrich_job(self.store.get_job(namespace))
+
     def _store_status(self, rec: JobRecord, st) -> None:
+        directory = getattr(st, "artifact_dir", "")
+        if directory and isinstance(rec.job, DiscoveredJob) and rec.job.repo_dir != directory:
+            rec.job.set_artifact_dir(directory)
         self._persist(rec)
         value = st.state.value if hasattr(st.state, "value") else str(st.state)
         rec.last_state = value
@@ -916,6 +1216,9 @@ class Hub:
             partition=st.partition,
             message=st.message,
             updated=st.updated or "",
+            parent_namespace=getattr(st, "parent_namespace", ""),
+            array_index=getattr(st, "array_index", ""),
+            artifact_dir=getattr(st, "artifact_dir", ""),
         )
 
     def _array_statuses(self, rec: JobRecord) -> list[JobStatus]:
@@ -1039,6 +1342,18 @@ class Hub:
             print(f"[hub] status pull failed for {job.job_name}: {e}")
             return
         if not found:
+            children = [row for row in self.store.list_jobs()
+                        if row.get("parent_namespace") == job.namespace]
+            if children:
+                rec.last_state = run_status([row["state"] for row in children])
+                self.store.set_job_state(job.namespace, rec.last_state)
+                return
+            if not rec.discovered and rec.persisted:
+                finished = self._sacct_states(rec) if not self._slurm_has_job(rec) else []
+                if finished:
+                    rec.last_state = run_status(finished)
+                    self.store.set_job_state(job.namespace, rec.last_state)
+                return
             # same rule for dispatched and discovered jobs: a persisted
             # (status-backed) job whose status file vanished and that Slurm
             # no longer knows is forgotten
@@ -1127,20 +1442,27 @@ class Hub:
 
         with self.lock:
             records = list(self.registry.values())
-        with ThreadPoolExecutor(max_workers=self.settings.max_status_workers) as pool:
-            try:
-                list(pool.map(self._sync_job_status, records, timeout=self.settings.ssh_timeout))
-            except TimeoutError:
-                print("[hub] timeout polling job statuses (slow cluster?)")
-        # pull artifacts for newly finished jobs
+        clusters = {}
         for rec in records:
-            if rec.last_state in {s.value for s in FINISHED_STATES} and not rec.pulled:
-                self._bounded(self._pull_results, rec)
+            clusters.setdefault(rec.job.ssh_config, []).append(rec)
+        for ssh, cluster_records in clusters.items():
+            future = self._status_tasks.get(ssh)
+            if future is None or future.done():
+                self._status_tasks[ssh] = self._status_pool.submit(self._sync_cluster_records, cluster_records)
+        for future in list(self._status_tasks.values()):
+            try:
+                future.result(timeout=self.settings.ssh_timeout)
+            except FutureTimeoutError:
+                print("[hub] cluster status polling is still in progress")
+        # pull artifacts for newly finished jobs
+        for rec in sorted(records, key=record_is_terminal):
+            if record_is_terminal(rec) and not rec.final_progress_pulled and getattr(rec.job, "progress_artifacts", []):
+                self._queue_transfer(rec, progress=True)
             elif (
                 rec.last_state in (State.PENDING.value, State.RUNNING.value)
                 and time.time() - rec.last_progress_pull >= self.settings.progress_interval
             ):
-                self._bounded(self._pull_progress, rec)
+                self._queue_transfer(rec, progress=True)
         if _time.time() - self._last_discover > self.settings.discover_interval:
             self._last_discover = _time.time()
             for ssh in self._ssh_configs():
@@ -1148,6 +1470,31 @@ class Hub:
                 # also refresh status of discovered jobs registered before
                 self._refresh_cluster(ssh, max_age=self.settings.discover_interval)
         self._recompute_runs()
+
+    def _sync_cluster_records(self, records: list[JobRecord]) -> None:
+        try:
+            if any(not hasattr(rec.job.status_file, "runner") for rec in records):
+                for rec in records:
+                    self._sync_job_status(rec)
+                return
+            by_directory = {}
+            for rec in records:
+                by_directory.setdefault(rec.job.job_dir, []).append(rec)
+            runner = records[0].job.status_file.runner
+            statuses = read_status_batch(runner, list(by_directory), allow_missing=True)
+            for directory, matches in by_directory.items():
+                status = statuses[directory]
+                for rec in matches:
+                    if status is None:
+                        self._sync_job_status(rec)
+                        continue
+                    status = independent_task_status(status)
+                    rec.job.status = status
+                    self._store_status(rec, status)
+                    if status.state in (State.PENDING, State.RUNNING):
+                        self._sync_job_status(rec)
+        except Exception as error:
+            print(f"[hub] cluster status batch failed: {error}")
 
     def scheduler_tick(self) -> None:
         import time as _time
@@ -1170,12 +1517,13 @@ class Hub:
     # ------------------------------------------------------------------ #
 
     def _loop(self, fn, interval: float) -> None:
-        fn()
-        while not self._stop.wait(interval):
+        while not self._stop.is_set():
             try:
                 fn()
             except Exception as e:  # noqa: BLE001
                 print(f"[hub] loop error in {fn.__name__}: {e}")
+            if self._stop.wait(interval):
+                break
 
     def start(self) -> None:
         self._stop.clear()
@@ -1195,6 +1543,8 @@ class Hub:
 
     def stop(self) -> None:
         self._stop.set()
+        self._transfer_pool.shutdown(wait=False, cancel_futures=True)
+        self._status_pool.shutdown(wait=False, cancel_futures=True)
 
     # ------------------------------------------------------------------ #
     # snapshots                                                          #
@@ -1222,3 +1572,11 @@ class Hub:
 def asdict_flat(cap) -> dict:
     d = dataclasses.asdict(cap)
     return {f"cap_{k}": v for k, v in d.items()}
+
+
+def record_is_terminal(rec: JobRecord) -> bool:
+    return rec.last_state in {state.value for state in FINISHED_STATES}
+
+
+def artifact_entry_sort_key(entry: dict) -> tuple:
+    return (not entry["directory"], entry["name"].lower())

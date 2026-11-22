@@ -5,6 +5,16 @@ let selectedPipeline = null;
 let selectedRun = null;
 let selectedJob = null;
 const jobDetailOpenStates = new Map();
+const resultFolderStates = new Map();
+const resultTreeCache = new Map();
+const pendingPulls = new Set();
+const sweepOpenStates = new Map();
+let detailSignature = "";
+let runsSignature = "";
+let dispatchPending = false;
+let refreshTimer = null;
+let searchText = "";
+let statusFilter = "";
 
 const $ = (sel) => document.querySelector(sel);
 const esc = (s) =>
@@ -34,7 +44,8 @@ function statusIcon(status) {
 }
 
 function badge(status) {
-  return status ? `<span class="badge ${esc(status)}">${esc(status)}</span>` : "";
+  const classes = { COMPLETED: "success", FAILED: "failure", CANCELLED: "cancelled", RUNNING: "running", PENDING: "queued" };
+  return status ? `<span class="badge ${classes[status] || ""}">${esc(status)}</span>` : "";
 }
 
 function resultUrl(path) {
@@ -45,7 +56,8 @@ function resultTree(entries) {
   if (!entries.length) return `<span class="sub">No files pulled.</span>`;
   return `<ul class="result-tree">${entries.map((entry) => {
     if (entry.directory) {
-      return `<li><details open><summary>${esc(entry.name)}</summary>${resultTree(entry.children)}</details></li>`;
+      const isOpen = resultFolderStates.get(entry.path) !== false;
+      return `<li><details data-result-path="${esc(entry.path)}" ${isOpen ? "open" : ""}><summary>${esc(entry.name)}</summary>${resultTree(entry.children)}</details></li>`;
     }
     return `<li><a href="${resultUrl(entry.path)}" target="_blank">${esc(entry.name)}</a></li>`;
   }).join("")}</ul>`;
@@ -64,7 +76,7 @@ function progressArtifacts(artifacts) {
   if (!thumbnails.length) return "";
   return `<div class="progress-artifacts">${thumbnails.map((artifact) => `
     <a href="${resultUrl(artifact.path)}" target="_blank" title="${esc(artifact.path)}">
-      <img src="${resultUrl(artifact.path)}" alt="${esc(artifact.path)}" loading="lazy">
+      <img src="${resultUrl(artifact.path)}?v=${encodeURIComponent(artifact.version || "")}" alt="${esc(artifact.path)}" loading="lazy">
     </a>`).join("")}</div>`;
 }
 
@@ -95,11 +107,20 @@ function arrayChildren(children) {
 }
 
 async function loadResultTree(container, namespace) {
+  container.dataset.remoteTree = namespace;
   try {
-    const data = await api(`/api/jobs/${encodeURIComponent(namespace)}/results`);
-    container.innerHTML = resultTree(data.entries || []);
+    const job = state.jobs.find((item) => item.namespace === namespace);
+    const key = `${namespace}:${job && job.transfer_updated || ""}`;
+    let data = resultTreeCache.get(key);
+    if (!data) {
+      data = await api(`/api/jobs/${encodeURIComponent(namespace)}/artifacts`);
+      resultTreeCache.set(key, data);
+    }
+    if (!container.isConnected) return;
+    container.innerHTML = `<button class="btn small" data-refresh-tree="${esc(namespace)}">Refresh listing</button>` + remoteResultTree(data, namespace);
+    loadExpandedArtifactDirectories(container);
   } catch (e) {
-    container.textContent = "Results unavailable.";
+    container.textContent = `Remote results unavailable: ${e.message}`;
   }
 }
 
@@ -109,7 +130,8 @@ function fmtTags(job) {
   if (job.node) tags.push(`node:${esc(job.node)}`);
   if (job.partition) tags.push(`part:${esc(job.partition)}`);
   if (job.discovered) tags.push(`<span class="badge">discovered</span>`);
-  if (job.artifacts_pulled) tags.push(`<span class="badge success">results pulled</span>`);
+  if (job.transfer_state === "partial") tags.push(`<span class="badge">some artifacts missing</span>`);
+  else if (job.artifacts_pulled) tags.push(`<span class="badge success">results pulled</span>`);
   return tags.join(" ");
 }
 
@@ -117,6 +139,7 @@ function renderPipelines() {
   const ul = $("#pipeline-list");
   ul.innerHTML = "";
   const all = document.createElement("li");
+  makeRowAccessible(all);
   all.innerHTML = `<span class="pip-enabled"></span><span class="pip-name">All runs</span>`;
   all.className = selectedPipeline === null ? "selected" : "";
   all.onclick = () => {
@@ -129,6 +152,7 @@ function renderPipelines() {
   ul.appendChild(all);
   state.pipelines.forEach((p) => {
     const li = document.createElement("li");
+    makeRowAccessible(li);
     li.className = selectedPipeline === p.id ? "selected" : "";
     const dot = p.enabled ? "pip-enabled" : "pip-disabled";
     const cron = p.cron ? `<span class="pip-cron" title="next: ${esc(p.next_run_at_iso)}">⏱</span>` : "";
@@ -147,6 +171,7 @@ function renderPipelines() {
 function runRow(r, pipelineName) {
   const el = document.createElement("div");
   el.className = "card run-row";
+  makeRowAccessible(el);
   const jobsRun = (r.jobs || []).length;
   const trigger = r.trigger === "cron" ? `<span class="badge cron">cron</span>` : `<span class="badge">${esc(r.trigger || "manual")}</span>`;
   el.innerHTML = `
@@ -170,6 +195,7 @@ function runRow(r, pipelineName) {
 function discoveredJobRow(job) {
   const el = document.createElement("div");
   el.className = "card run-row";
+  makeRowAccessible(el);
   el.innerHTML = `
     ${statusIcon(job.state)}
     <div>
@@ -179,17 +205,14 @@ function discoveredJobRow(job) {
     <div class="run-spacer"></div>
     <span class="badge">discovered</span>
     ${badge(job.state)}
-    <button class="btn small" data-pull="${esc(job.namespace)}">pull results</button>`;
+    <button class="btn small" data-pull="${esc(job.namespace)}">browse results</button>`;
   const pullButton = el.querySelector("[data-pull]");
-  pullButton.onclick = async (event) => {
+  pullButton.onclick = (event) => {
     event.stopPropagation();
-    pullButton.disabled = true;
-    pullButton.textContent = "pulling...";
-    try {
-      await api(`/api/jobs/${encodeURIComponent(job.namespace)}/pull`, { method: "POST" });
-    } finally {
-      refresh();
-    }
+    selectedJob = job.namespace;
+    selectedRun = null;
+    switchView("detail");
+    renderDetail();
   };
   el.onclick = () => {
     selectedJob = job.namespace;
@@ -201,6 +224,9 @@ function discoveredJobRow(job) {
 }
 
 function renderRuns() {
+  const signature = JSON.stringify([selectedPipeline, state.runs, state.jobs, state.pipelines, dispatchPending, [...pendingPulls], searchText, statusFilter]);
+  if (signature === runsSignature) return;
+  runsSignature = signature;
   const list = $("#runs-list");
   const title = $("#runs-title");
   list.innerHTML = "";
@@ -211,21 +237,22 @@ function renderRuns() {
     const p = state.pipelines.find((x) => x.id === selectedPipeline);
     pipelines = p ? [p] : [];
     runs = runs.filter((r) => r.pipeline_id === selectedPipeline);
+    discovered = state.jobs.filter((job) => job.discovered && !job.run_id && job.pipeline_id === selectedPipeline);
     title.textContent = p ? `Runs — ${p.name}` : "Runs";
     const btn = $("#dispatch-all-none");
     btn.hidden = !p;
     btn.textContent = "Dispatch now";
-    btn.onclick = async () => {
-      await api(`/api/pipelines/${selectedPipeline}/dispatch`, { method: "POST" });
-      refresh();
-    };
+    btn.disabled = dispatchPending;
+    btn.onclick = dispatchSelectedPipeline;
   } else {
     title.textContent = "All runs";
     $("#dispatch-all-none").hidden = true;
     discovered = state.jobs.filter((job) => job.discovered && !job.run_id);
   }
+  discovered = discovered.filter(jobMatchesFilters);
+  runs = runs.filter(runMatchesFilters);
   if (!runs.length && !discovered.length) {
-    list.innerHTML = `<div class="card run-row" style="cursor:default">No runs yet. Create a pipeline and dispatch it.</div>`;
+    list.innerHTML = `<div class="card">${searchText || statusFilter ? "No jobs match these filters." : "No runs yet. Create a pipeline and dispatch it."}</div>`;
     return;
   }
   const names = Object.fromEntries(state.pipelines.map((p) => [p.id, p.name]));
@@ -235,7 +262,7 @@ function renderRuns() {
     heading.className = "section-title";
     heading.textContent = "Discovered jobs";
     list.appendChild(heading);
-    discovered.forEach((job) => list.appendChild(discoveredJobRow(job)));
+    appendSweepRows(list, discovered);
   }
 }
 
@@ -288,7 +315,10 @@ function jobDetail(job, collapsible = true) {
           <span class="k">partition</span><code>${esc(job.partition || "-")}</code>
           <span class="k">updated</span><code>${esc(job.updated || "-")}</code>
           <span class="k">message</span><code>${esc(job.message || "-")}</code>
-          <span class="k">results</span><div class="result-files">${job.artifacts_pulled ? `<span data-result-tree="${esc(job.namespace)}">Loading results...</span>` : "pending"}</div>
+          <span class="k">downloads</span><div>${esc(job.transfer_state || "not requested")}${job.transfer_error ? `<p class="error">${esc(job.transfer_error)}</p>` : ""}${transferOutcomes(job.transfer_outcomes)}</div>
+          <span class="k">progress sync</span><div>${esc(job.progress_updated || "not checked yet")}${transferOutcomes(job.progress_outcomes)}</div>
+          <span class="k">artifact config</span><div>${esc(job.artifact_config_source)}<br><code>${esc((job.artifact_patterns || []).join(", "))}</code><br><code>${esc((job.progress_patterns || []).join(", "))}</code><br><button class="btn small" data-refresh-artifacts="${esc(job.namespace)}">Use current workflow patterns</button></div>
+          <span class="k">results</span><div class="result-files" data-result-tree="${esc(job.namespace)}">Loading remote listing...</div>
         </div>
       </div>
     ${tileEnd}`;
@@ -296,8 +326,11 @@ function jobDetail(job, collapsible = true) {
 
 function rememberJobDetailState(event) {
   const details = event.target;
-  if (!details.isConnected || !details.matches("details[data-job-namespace]")) return;
-  jobDetailOpenStates.set(details.dataset.jobNamespace, details.open);
+  if (!details.isConnected || details.tagName !== "DETAILS") return;
+  if (details.dataset.jobNamespace) jobDetailOpenStates.set(details.dataset.jobNamespace, details.open);
+  if (details.dataset.resultPath) resultFolderStates.set(details.dataset.resultPath, details.open);
+  if (details.dataset.sweep) sweepOpenStates.set(details.dataset.sweep, details.open);
+  if (details.dataset.remoteNamespace && details.open) loadRemoteDirectory(details);
 }
 
 function captureJobDetailStates(box) {
@@ -309,6 +342,10 @@ function captureJobDetailStates(box) {
 function renderDetail() {
   const box = $("#run-detail");
   captureJobDetailStates(box);
+  const data = selectedJob !== null ? state.jobs.find((job) => job.namespace === selectedJob) : state.runs.find((run) => run.id === selectedRun);
+  const signature = JSON.stringify([selectedJob, selectedRun, data]);
+  if (signature === detailSignature && box.children.length) return;
+  detailSignature = signature;
   if (selectedRun === null && selectedJob === null) { switchView("runs"); return; }
   if (selectedJob !== null) {
     const job = state.jobs.find((item) => item.namespace === selectedJob);
@@ -342,7 +379,7 @@ function renderDetail() {
       <span class="run-meta">${run.created_at_iso || ""}${run.finished_at_iso ? " → " + run.finished_at_iso : ""}</span>
     </div>
     <div class="card-list">
-      ${(run.jobs || []).map(jobDetail).join("") || `<div class="card">no jobs recorded for this run</div>`}
+      ${groupedJobDetails(run.jobs || []) || `<div class="card">no jobs recorded for this run</div>`}
     </div>`;
   box.querySelectorAll("[data-result-tree]").forEach((container) => {
     loadResultTree(container, container.dataset.resultTree);
@@ -352,6 +389,8 @@ function renderDetail() {
 }
 
 function switchView(view) {
+  const route = selectedJob !== null ? `#job/${encodeURIComponent(selectedJob)}` : selectedRun !== null ? `#run/${selectedRun}` : view === "clusters" ? "#clusters" : selectedPipeline !== null ? `#pipeline/${selectedPipeline}` : "#runs";
+  if (location.hash !== route) history.pushState(null, "", route);
   document.querySelectorAll(".tab").forEach((t) =>
     t.classList.toggle("active", t.dataset.view === view));
   ["runs", "clusters", "detail"].forEach((v) => {
@@ -379,6 +418,7 @@ async function refresh() {
   try {
     const data = await api("/api/state");
     refreshOnce(data);
+    $("#pollhint").textContent = `Updated ${new Date().toLocaleTimeString()}`;
   } catch (e) {
     $("#pollhint").textContent = `connection error: ${e.message}`;
   } finally {
@@ -386,9 +426,260 @@ async function refresh() {
   }
 }
 
+function transferOutcomes(outcomes) {
+  return (outcomes || []).map((item) => `<div><code>${esc(item.pattern || item.path)}</code> — ${esc(item.state)}, ${Number(item.matched || 0)} matched</div>`).join("");
+}
+
+function remoteResultTree(page, namespace) {
+  let html = '<ul class="result-tree">';
+  for (const entry of page.entries || []) {
+    const pull = `<button class="btn small" data-pull-artifact="${esc(entry.path)}" data-artifact-namespace="${esc(namespace)}">Pull${entry.directory ? " folder" : ""}</button>`;
+    if (entry.directory) {
+      const key = `${namespace}:${entry.path}`;
+      const open = resultFolderStates.get(key) === true ? "open" : "";
+      html += `<li><details data-remote-path="${esc(entry.path)}" data-remote-namespace="${esc(namespace)}" data-result-path="${esc(key)}" ${open}><summary>${esc(entry.name)}/</summary>${pull}<div data-remote-children>Expand to list files.</div></details></li>`;
+    } else {
+      const label = entry.downloaded
+        ? `<a href="${resultUrl(entry.local_path)}" target="_blank" rel="noopener">${esc(entry.name)}</a>`
+        : `<span>${esc(entry.name)}</span>`;
+      html += `<li>${label} <span class="sub">${formatFileSize(entry.size)}</span> ${pull}</li>`;
+    }
+  }
+  html += '</ul>';
+  if (!(page.entries || []).length) html += '<span class="sub">No matching remote artifacts.</span>';
+  if (page.next_offset !== null && page.next_offset !== undefined) {
+    html += `<button class="btn small" data-load-more-ns="${esc(namespace)}" data-load-more-path="${esc(page.path || "")}" data-load-more-offset="${page.next_offset}">Load next 200 entries</button>`;
+  }
+  return html;
+}
+
+function formatFileSize(bytes) {
+  if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(1)} MiB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${Number(bytes || 0)} B`;
+}
+
+function loadExpandedArtifactDirectories(container) {
+  for (const details of container.querySelectorAll("details[data-remote-namespace][open]")) {
+    loadRemoteDirectory(details);
+  }
+}
+
+async function loadRemoteDirectory(details) {
+  if (details.dataset.remoteLoading === "true" || details.dataset.remoteLoaded === "true") return;
+  details.dataset.remoteLoading = "true";
+  const namespace = details.dataset.remoteNamespace;
+  const path = details.dataset.remotePath;
+  const container = details.querySelector("[data-remote-children]");
+  container.textContent = "Listing remote directory...";
+  try {
+    const job = state.jobs.find((item) => item.namespace === namespace);
+    const key = `directory:${namespace}:${path}:${job && job.transfer_updated || ""}`;
+    let page = resultTreeCache.get(key);
+    if (!page) {
+      page = await api(`/api/jobs/${encodeURIComponent(namespace)}/artifacts?path=${encodeURIComponent(path)}`);
+      resultTreeCache.set(key, page);
+    }
+    if (!container.isConnected) return;
+    container.innerHTML = remoteResultTree(page, namespace);
+    details.dataset.remoteLoaded = "true";
+    loadExpandedArtifactDirectories(container);
+  } catch (error) {
+    container.textContent = `Listing failed: ${error.message}. Close and reopen to retry.`;
+  } finally {
+    details.dataset.remoteLoading = "false";
+  }
+}
+
+async function handleArtifactActions(event) {
+  const pull = event.target.closest("[data-pull-artifact]");
+  const more = event.target.closest("[data-load-more-ns]");
+  const reload = event.target.closest("[data-refresh-tree]");
+  const button = pull || more || reload;
+  if (!button) return;
+  event.preventDefault();
+  event.stopPropagation();
+  button.disabled = true;
+  try {
+    if (pull) {
+      await api(`/api/jobs/${encodeURIComponent(pull.dataset.artifactNamespace)}/pull`, {
+        method: "POST", headers: {"content-type": "application/json"},
+        body: JSON.stringify({paths: [pull.dataset.pullArtifact]}),
+      });
+      showNotice(`Download queued: ${pull.dataset.pullArtifact}`);
+      await refresh();
+    } else if (more) {
+      const namespace = more.dataset.loadMoreNs;
+      const page = await api(`/api/jobs/${encodeURIComponent(namespace)}/artifacts?path=${encodeURIComponent(more.dataset.loadMorePath)}&offset=${more.dataset.loadMoreOffset}`);
+      const container = more.parentElement;
+      more.remove();
+      container.insertAdjacentHTML("beforeend", remoteResultTree(page, namespace));
+      loadExpandedArtifactDirectories(container);
+    } else {
+      resultTreeCache.clear();
+      await loadResultTree(reload.closest("[data-remote-tree]"), reload.dataset.refreshTree);
+    }
+  } catch (error) {
+    showNotice(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function showNotice(message, isError = false) {
+  const notice = $("#action-notice");
+  notice.textContent = message;
+  notice.classList.toggle("error", isError);
+}
+
+async function dispatchSelectedPipeline() {
+  if (dispatchPending) return;
+  dispatchPending = true;
+  renderRuns();
+  try {
+    await api(`/api/pipelines/${selectedPipeline}/dispatch`, { method: "POST" });
+    showNotice("Run submitted.");
+  } catch (error) {
+    showNotice(error.message, true);
+  } finally {
+    dispatchPending = false;
+    runsSignature = "";
+    await refresh();
+  }
+}
+
+function activateRowWithKeyboard(event) {
+  if (event.target !== event.currentTarget || !["Enter", " "].includes(event.key)) return;
+  event.preventDefault();
+  event.currentTarget.click();
+}
+
+function makeRowAccessible(element) {
+  element.tabIndex = 0;
+  element.setAttribute("role", "button");
+  element.addEventListener("keydown", activateRowWithKeyboard);
+}
+
+function sweepGroups(jobs) {
+  const groups = new Map();
+  for (const job of jobs) {
+    const key = job.parent_namespace || job.namespace;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(job);
+  }
+  return groups;
+}
+
+function compareTaskIndices(left, right) {
+  return Number(left.array_index || -1) - Number(right.array_index || -1);
+}
+
+function sweepSummary(namespace, jobs) {
+  const counts = {};
+  for (const job of jobs) counts[job.state || "unknown"] = (counts[job.state || "unknown"] || 0) + 1;
+  return `<strong>Sweep</strong> <span class="sub">${esc(namespace)}</span> ${Object.entries(counts).map(([status, count]) => `${badge(status)} ${count}`).join(" ")}`;
+}
+
+function rememberSweepState(event) {
+  if (event.target.dataset.sweep) sweepOpenStates.set(event.target.dataset.sweep, event.target.open);
+}
+
+function appendSweepRows(list, jobs) {
+  for (const [namespace, tasks] of sweepGroups(jobs)) {
+    if (!tasks.some((job) => job.parent_namespace)) {
+      for (const job of tasks) list.appendChild(discoveredJobRow(job));
+      continue;
+    }
+    const group = document.createElement("details");
+    group.className = "sweep-group";
+    group.dataset.sweep = namespace;
+    group.open = sweepOpenStates.get(namespace) === true;
+    group.innerHTML = `<summary>${sweepSummary(namespace, tasks)}</summary>`;
+    group.addEventListener("toggle", rememberSweepState);
+    for (const job of tasks.sort(compareTaskIndices)) group.appendChild(discoveredJobRow(job));
+    list.appendChild(group);
+  }
+}
+
+function groupedJobDetails(jobs) {
+  let html = "";
+  for (const [namespace, tasks] of sweepGroups(jobs)) {
+    const children = tasks.filter((job) => job.parent_namespace);
+    if (!children.length) {
+      for (const job of tasks) html += jobDetail(job);
+      continue;
+    }
+    html += `<details class="sweep-group" data-sweep="${esc(namespace)}" ${sweepOpenStates.get(namespace) ? "open" : ""}><summary>${sweepSummary(namespace, children)}</summary>`;
+    for (const job of children.sort(compareTaskIndices)) html += jobDetail(job);
+    html += "</details>";
+  }
+  return html;
+}
+
+function restoreRoute() {
+  const [kind, value] = location.hash.slice(1).split("/");
+  selectedJob = kind === "job" ? decodeURIComponent(value || "") : null;
+  selectedRun = kind === "run" ? Number(value) : null;
+  selectedPipeline = kind === "pipeline" ? Number(value) : null;
+  detailSignature = "";
+  runsSignature = "";
+  switchView(kind === "clusters" ? "clusters" : selectedJob !== null || selectedRun !== null ? "detail" : "runs");
+  if (selectedJob !== null || selectedRun !== null) renderDetail();
+  else renderRuns();
+}
+
+function toggleSidebar() {
+  const sidebar = $("#pipeline-sidebar");
+  sidebar.hidden = !sidebar.hidden;
+  $("#sidebar-toggle").setAttribute("aria-expanded", String(!sidebar.hidden));
+}
+
+function jobMatchesFilters(job) {
+  if (statusFilter && job.state !== statusFilter) return false;
+  return [job.task, job.namespace, job.parent_namespace, job.job_id].join(" ").toLowerCase().includes(searchText);
+}
+
+function runMatchesFilters(run) {
+  if (!searchText && !statusFilter) return true;
+  return (run.jobs || []).some(jobMatchesFilters);
+}
+
+function updateListFilters() {
+  searchText = $("#job-search").value.trim().toLowerCase();
+  statusFilter = $("#job-status-filter").value;
+  renderRuns();
+}
+
+async function refreshAndSchedule() {
+  await refresh();
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(refreshAndSchedule, state.poll);
+}
+
+async function refreshArtifactPatterns(event) {
+  const button = event.target.closest("[data-refresh-artifacts]");
+  if (!button) return;
+  button.disabled = true;
+  try {
+    await api(`/api/jobs/${encodeURIComponent(button.dataset.refreshArtifacts)}/artifacts/refresh`, { method: "POST" });
+    resultTreeCache.clear();
+    showNotice("Workflow artifact patterns applied; progress refresh queued. Results stay remote until you pull them.");
+    await refresh();
+  } catch (error) {
+    showNotice(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 /* pipeline dialog ************************************************************/
 
 $("#run-detail").addEventListener("toggle", rememberJobDetailState, true);
+$("#run-detail").addEventListener("click", refreshArtifactPatterns);
+$("#run-detail").addEventListener("click", handleArtifactActions);
+$("#sidebar-toggle").addEventListener("click", toggleSidebar);
+$("#job-search").addEventListener("input", updateListFilters);
+$("#job-status-filter").addEventListener("change", updateListFilters);
 
 const dialog = $("#pipeline-dialog");
 $("#new-pipeline-btn").onclick = () => { $("#pipeline-form").reset(); dialog.showModal(); };
@@ -432,5 +723,6 @@ document.querySelectorAll(".tab").forEach((t) => {
   };
 });
 
-refresh();
-setInterval(refresh, 4000);
+window.addEventListener("popstate", restoreRoute);
+restoreRoute();
+refreshAndSchedule();

@@ -9,6 +9,7 @@
 </head>
 <body>
 <header class="topbar">
+  <button class="btn" id="sidebar-toggle" aria-controls="pipeline-sidebar" aria-expanded="true">Pipelines</button>
   <div class="brand">
     <svg viewBox="0 0 16 16" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M1.5 8a6.5 6.5 0 1 1 13 0A6.5 6.5 0 0 1 1.5 8Zm6.5 5.35A5.35 5.35 0 1 0 8 2.65a5.35 5.35 0 0 0 0 10.7ZM8 6.25a1.75 1.75 0 1 1 0 3.5 1.75 1.75 0 0 1 0-3.5Z"></path></svg>
     <span>wes <b>hub</b></span>
@@ -22,7 +23,7 @@
 </header>
 
 <div class="layout">
-  <aside class="sidebar">
+  <aside class="sidebar" id="pipeline-sidebar">
     <div class="side-actions">
       <button class="btn primary" id="new-pipeline-btn">New pipeline</button>
     </div>
@@ -31,10 +32,15 @@
   </aside>
 
   <main class="content">
+    <p id="action-notice" role="status" aria-live="polite"></p>
     <section id="view-runs" class="view">
       <div class="list-head">
         <h2 id="runs-title">All runs</h2>
         <button class="btn" id="dispatch-all-none" hidden>Dispatch</button>
+      </div>
+      <div class="list-filters">
+        <label>Search <input id="job-search" type="search" placeholder="Task, sweep, namespace or Slurm ID"></label>
+        <label>Status <select id="job-status-filter"><option value="">All states</option><option>RUNNING</option><option>PENDING</option><option>FAILED</option><option>COMPLETED</option><option>CANCELLED</option></select></label>
       </div>
       <div id="runs-list" class="card-list"></div>
     </section>

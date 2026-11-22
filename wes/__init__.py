@@ -16,6 +16,7 @@ from wes.engine import Engine
 from wes.jobs.job import STATUS_FILENAME, JobInfo, SshItem
 from wes.jobs.scanner import JobScanner
 from wes.remote.runner import SshRunner
+from wes.remote.tree import remote_tree
 
 
 class WES:
@@ -90,6 +91,9 @@ class WES:
 
     def ls(self, lsdir=None, recursive=False, depth=None) -> list:
         return JobScanner(self.ssh).list_dir(lsdir, recursive=recursive, depth=depth)
+
+    def tree(self, path: str = ".", depth: int = 2) -> list[str]:
+        return remote_tree(SshRunner(self.ssh), path, depth)
 
     def _read_status(self, path: str) -> dict | None:
         ok, lines = SshRunner(self.ssh).run_command(f"cat {quote(path)}", quiet=True)

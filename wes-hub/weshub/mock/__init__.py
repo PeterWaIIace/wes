@@ -42,8 +42,8 @@ def mock_config() -> dict[str, str]:
 
 
 # NOTE: the mock demo job does not cd; with SLURM_ARRAY_TASK_ID unset the
-# injected snippet writes wes.status in the job dir. Real array jobs cd into
-# tasks/<index>/ (done by the injected snippet itself).
+# injected snippet writes wes.status in the job dir. Array jobs write their
+# statuses under tasks/<index>/ without changing the workflow's working dir.
 DEMO_JOB = "#!/bin/bash\nset -e\nbash example-repo/run.sh\n"
 DEMO_PRE = "#!/bin/bash\necho 'pre-script ok'\n"
 DEMO_REPO_RUN = """#!/bin/bash

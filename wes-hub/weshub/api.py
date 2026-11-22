@@ -22,7 +22,7 @@ def get_hub() -> Hub:
 
 def http_for(error: HubError):
     """Map a HubError to the matching HTTP status."""
-    code = 404 if "not found" in str(error) else 400
+    code = error.status_code
     return HTTPException(status_code=code, detail=str(error))
 
 
@@ -42,6 +42,10 @@ class PipelinePatch(BaseModel):
     cron: str | None = None
     enabled: bool | None = None
     assets: dict[str, str] | None = None
+
+
+class ArtifactPull(BaseModel):
+    paths: list[str]
 
 
 @router.get("/pipelines")
@@ -82,7 +86,7 @@ def get_pipeline(pid: int):
     try:
         return get_hub().get_pipeline(pid)
     except HubError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+        raise http_for(e) from e
 
 
 @router.patch("/pipelines/{pid}")
@@ -142,11 +146,11 @@ def list_jobs(run: int | None = None):
 
 
 @router.post("/jobs/{namespace}/pull")
-def pull_job(namespace: str):
+def pull_job(namespace: str, request: ArtifactPull | None = None):
     try:
-        return get_hub().pull_job(namespace)
+        return get_hub().pull_job(namespace, paths=request.paths if request else None)
     except HubError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+        raise http_for(e) from e
 
 
 @router.get("/jobs/{namespace}/results")
@@ -154,7 +158,23 @@ def job_results(namespace: str):
     try:
         return {"entries": get_hub().result_tree(namespace)}
     except HubError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+        raise http_for(e) from e
+
+
+@router.get("/jobs/{namespace}/artifacts")
+def remote_artifacts(namespace: str, path: str = "", offset: int = 0):
+    try:
+        return get_hub().remote_artifact_tree(namespace, path, offset)
+    except HubError as error:
+        raise http_for(error) from error
+
+
+@router.post("/jobs/{namespace}/artifacts/refresh")
+def refresh_artifact_config(namespace: str):
+    try:
+        return get_hub().refresh_artifact_config(namespace)
+    except HubError as e:
+        raise http_for(e) from e
 
 
 @router.post("/discovery/{ssh}")

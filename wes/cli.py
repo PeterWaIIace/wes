@@ -6,6 +6,13 @@ import argparse
 from wes import WES
 
 
+def show_remote_tree(args):
+    try:
+        return WES(args.ssh).tree(args.path or ".", int(args.depth or 2))
+    except (ValueError, RuntimeError) as error:
+        raise SystemExit(str(error)) from error
+
+
 class WesParser:
     def __init__(self):
         self.parser = argparse.ArgumentParser(prog="wes")
@@ -43,6 +50,15 @@ class WesParser:
 def main() -> None:
     wes = WES()
     parser = WesParser()
+    parser.add_sub(
+        "tree", help="Show a remote directory tree without downloading files",
+        callback=show_remote_tree,
+        arguments=[
+            {"argument": "--ssh", "help": "SSH config name", "required": True},
+            {"argument": "--path", "help": "Remote directory (default: .)"},
+            {"argument": "--depth", "help": "Depth from 1 to 20 (default: 2)"},
+        ],
+    )
 
     parser.add_sub(
         "dispatch",

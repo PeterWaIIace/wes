@@ -52,6 +52,13 @@ class MirrorItem:
         raise NotImplementedError("sync() must be implemented in subclasses")
 
 
+@dataclass
+class TransferResult:
+    state: str
+    matched: int = 0
+    error: str = ""
+
+
 class SshItem(MirrorItem):
     def __init__(self, h_path: str, r_path: str, ssh_config: str):
         self.ssh = SshRunner(ssh_config)
@@ -64,8 +71,13 @@ class SshItem(MirrorItem):
     def sync(self):
         remote_pattern = f"{self.r_path}/{self.r_name}"
         if glob.has_magic(remote_pattern):
-            self._sync_pattern(remote_pattern)
-            return
+            return self._sync_pattern(remote_pattern)
+        check = f"if [ -e {shlex.quote(remote_pattern)} ]; then echo present; else echo missing; fi"
+        reachable, output = self.ssh.run_command(check, quiet=True)
+        if not reachable:
+            return TransferResult("failed", error=f"Could not inspect {remote_pattern}")
+        if output == ["missing"]:
+            return TransferResult("missing")
         print("SSHItem.sync()", self.r_path, self.r_name, "->", self.h_path, self.h_name)
         Path(self.h_path).mkdir(parents=True, exist_ok=True)
         ok = self.ssh.scp_from(self.r_path, self.r_name, self.h_path + "/", r=True)
@@ -75,8 +87,10 @@ class SshItem(MirrorItem):
                 f"{self.ssh.ssh_config}:{self.r_path}/{self.r_name}"
                 f" -> {self.h_path}/{self.h_name}"
             )
+            return TransferResult("failed", error=f"Download failed: {remote_pattern}")
+        return TransferResult("downloaded", matched=1)
 
-    def _sync_pattern(self, remote_pattern: str) -> None:
+    def _sync_pattern(self, remote_pattern: str) -> TransferResult:
         """Expand a remote Bash glob and preserve each match's relative path."""
         remote_root = artifact_pattern_root(remote_pattern)
         local_root = artifact_pattern_root(f"{self.h_path}/{self.h_name}")
@@ -90,7 +104,9 @@ class SshItem(MirrorItem):
         ok, matches = self.ssh.run_command(f"bash -c {shlex.quote(script)}")
         if not ok:
             print(f"  ✗ could not expand artifact pattern: {remote_pattern}")
-            return
+            return TransferResult("failed", error=f"Could not expand {remote_pattern}")
+        downloaded = 0
+        errors = []
         for match in dict.fromkeys(matches):
             remote_path = Path(match)
             relative_path = remote_path.relative_to(remote_root)
@@ -101,6 +117,12 @@ class SshItem(MirrorItem):
             )
             if not copied:
                 print(f"  ✗ artifact download failed: {self.ssh.ssh_config}:{match}")
+                errors.append(match)
+            else:
+                downloaded += 1
+        if errors:
+            return TransferResult("failed", downloaded, f"Download failed: {', '.join(errors)}")
+        return TransferResult("downloaded" if downloaded else "missing", downloaded)
 
 
 def artifact_pattern_root(pattern: str) -> Path:
@@ -113,6 +135,38 @@ def artifact_pattern_root(pattern: str) -> Path:
             break
         root = os.path.join(root, component)
     return Path(root or ".")
+
+
+def resolve_artifact_pattern(pattern: str, status: JobStatus) -> str | None:
+    """Substitute known Slurm identifiers; defer until required values exist."""
+    for name in ("array_index", "job_id"):
+        token = "{" + name + "}"
+        if token not in pattern:
+            continue
+        value = getattr(status, name, "")
+        if not value:
+            return None
+        if any(character in value for character in "/\\\n\r"):
+            raise ValueError(f"Invalid artifact variable {name}: {value!r}")
+        pattern = pattern.replace(token, value)
+    return pattern
+
+
+class ArtifactItem(SshItem):
+    """Resolve an artifact pattern against its owner's latest status before syncing."""
+
+    def __init__(self, h_path: str, r_path: str, ssh_config: str, owner):
+        super().__init__(h_path, r_path, ssh_config)
+        self.owner = owner
+
+    def sync(self):
+        remote = resolve_artifact_pattern(f"{self.r_path}/{self.r_name}", self.owner.status)
+        local = resolve_artifact_pattern(f"{self.h_path}/{self.h_name}", self.owner.status)
+        if remote is None or local is None:
+            return TransferResult("pending")
+        concrete = SshItem(local, remote, self.ssh.ssh_config)
+        concrete.ssh = self.ssh
+        return concrete.sync()
 
 
 class JobConfig(SshItem):
@@ -176,6 +230,34 @@ class ClientSsh(ClientItem):
         ok, result = self.ssh.run_command(cmd, retries=retries)
         return ok, result
 
+class Command:
+
+    def __init__(self):
+        pass
+
+class GitCloneCommand(Command):
+
+    def _set_ssh_host_file_to_null(self):
+        return "-o UserKnownHostsFile=/dev/null"
+
+    def _do_not_ask_host(self):
+        return "-o StrictHostKeyChecking=no"
+
+    def __init__(self, name, url, branch = None):
+        self.url = url
+        self.name = name
+        self.branch = branch
+        self.ssh_opts = f"{self._do_not_ask_host()} {self._set_ssh_host_file_to_null()}"
+
+    def string():
+        if self.branch:
+            clone_cmd = (
+                f"GIT_SSH_COMMAND='ssh {self.ssh_opts}' git clone -b "
+                f"{self.branch} {self.url} {self.name}"
+            )
+        else: 
+            clone_cmd = f"GIT_SSH_COMMAND='ssh {ssh_opts}' git clone {self.git_url} {self.name}"
+        return clone_cmd
 
 class Job:
     def __init__(self, task: Task, ssh_config: str, namespace: str | None = None):
@@ -277,18 +359,14 @@ class Job:
         self.artifacts = []
         for path in self.task.artifacts:
             h_path = f"results/{self.repo_dir}/{path}"
-            if not glob.has_magic(h_path):
-                Path(h_path).parent.mkdir(parents=True, exist_ok=True)
             r_path = f"{self.repo_dir}/{path}"
-            self.artifacts.append(SshItem(h_path=h_path, r_path=r_path, ssh_config=self.ssh_config))
+            self.artifacts.append(ArtifactItem(h_path, r_path, self.ssh_config, self))
 
         for path in self.task.progress_artifacts:
             h_path = f"results/{self.repo_dir}/{path}"
-            if not glob.has_magic(h_path):
-                Path(h_path).parent.mkdir(parents=True, exist_ok=True)
             r_path = f"{self.repo_dir}/{path}"
             self.progress_artifacts.append(
-                SshItem(h_path=h_path, r_path=r_path, ssh_config=self.ssh_config)
+                ArtifactItem(h_path, r_path, self.ssh_config, self)
             )
 
         for log_name in ("job_output.txt", "job_error.txt", STATUS_FILENAME):
@@ -361,30 +439,24 @@ class Job:
 
     def upload_scripts(self) -> None:
         print("====> Uploading scripts for job:", self.job_name)
-        # create the remote job dir and push the config file; kept here so
-        # that discovering a Job (JobScanner) never writes to the server
         self.job_ssh_client.ssh.create_dir(self.job_dir)
         self.job_conf.copy()
-        # one scratch dir for the staged copies; TemporaryDirectory removes it
-        # after the uploads so nothing leaks into /tmp
         with tempfile.TemporaryDirectory(prefix="wes_upload_") as staging:
             self._upload(self.script, self._preprocess(self.script, inject_job_status, staging))
         if self.pre_script is not None:
             self._upload(self.pre_script, os.path.join(self.pre_script.h_path, self.pre_script.h_name))
-        # The job script creates/updates wes.status when it runs.
         self.status_file.write_helper()
+
 
     def _clone_repo(self) -> bool:
         git_name = self.task.git_url.split("/")[-1].replace(".git", "")
-        ssh_opts = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-        if self.task.branch:
-            clone_cmd = (
-                f"GIT_SSH_COMMAND='ssh {ssh_opts}' git clone -b "
-                f"{self.task.branch} {self.task.git_url} {git_name}"
-            )
-        else:
-            clone_cmd = f"GIT_SSH_COMMAND='ssh {ssh_opts}' git clone {self.task.git_url} {git_name}"
-        ok, result = self.job_ssh_client.cmd(clone_cmd)
+        ok, result = self.job_ssh_client.cmd(
+            GitCloneCommand(
+                name = git_name, 
+                url = self.task.git_url , 
+                branch = self.task.branch
+            ).string()
+        )
         if not ok:
             print(f"Clone failed: {result}")
         return ok

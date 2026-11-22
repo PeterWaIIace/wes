@@ -183,14 +183,17 @@ def test_dispatch_and_monitor(tmp_path):
             {
                 "path": "demo_task/ns_1/demo/results/progress.png",
                 "thumbnail": True,
+                "version": (progress / "progress.png").stat().st_mtime_ns,
             }
         ]
 
-        # run the monitor once: status becomes COMPLETED, results marked pulled
+        # Monitoring updates state without automatically downloading whole artifacts.
         api_hub.monitor_tick()
+        for future in api_hub._transfers.values():
+            future.result(timeout=5)
         jobs = client.get("/api/jobs").json()
         assert jobs[0]["state"] == "COMPLETED"
-        assert jobs[0]["artifacts_pulled"] == 1
+        assert jobs[0]["artifacts_pulled"] == 0
 
         run = client.get(f"/api/runs/{run['id']}").json()
         assert run["status"] == "COMPLETED"

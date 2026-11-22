@@ -16,7 +16,8 @@ def test_progress_globs_expand_to_distinct_preview_files(tmp_path, monkeypatch):
         name="sweep", git_url="", ssh_config="hpc",
         progress_artifacts=["results/*/reward_chart.png", "results/**/reward_chart.png"],
     )
-    job = SimpleNamespace(repo_dir="sweep/ns/tasks/2", task=task)
+    job = SimpleNamespace(repo_dir="sweep/ns/tasks/2", task=task,
+                          status=JobStatus("sweep", "ns_array_2", "job", "hpc", array_index="2"))
     hub.registry["ns_array_2"] = JobRecord(job, None, None, discovered=True)
     monkeypatch.setattr(hub, "_task_for_job", lambda row: task)
     monkeypatch.setattr(hub, "job_execution", lambda row: {})
@@ -66,7 +67,7 @@ def test_discovery_skips_unreadable_status(tmp_path, monkeypatch):
     monkeypatch.setattr("weshub.manager.find_status_dirs", lambda runner, path: ["broken"])
     monkeypatch.setattr("weshub.manager.StatusFile", FailingStatusFile)
 
-    assert hub._discover_path("hpc", ".") == ([], set())
+    assert hub._discover_path("hpc", ".") == ([], None)
 
 
 class FailingStatusFile:
@@ -345,19 +346,19 @@ def test_in_creation_job_is_runtime_only(tmp_path):
     assert "in_creation" not in hub.list_jobs()[0]
 
 
-def test_store_is_runtime_only(tmp_path):
+def test_store_survives_restart(tmp_path):
     data = tmp_path / "data"
     hub = Hub(Settings(data_dir=data))
     pipeline = hub.store.add_pipeline("mock-demo", "sequence: {}", "mock", "", True)
     run = hub.store.add_run(pipeline["id"], "manual")
     hub.store.upsert_job("mock-job", pipeline_id=pipeline["id"], run_id=run["id"], ssh="mock")
 
-    # a new hub (e.g. after a restart) starts empty: nothing is persisted on disk
+    # Restart metadata retains run associations even before remote rediscovery.
     fresh = Hub(Settings(data_dir=data))
-    assert fresh.store.list_pipelines() == []
-    assert fresh.store.list_runs() == []
-    assert fresh.store.list_jobs() == []
-    assert not (data / "hub.sqlite3").exists()
+    assert fresh.store.get_pipeline(pipeline["id"]) == pipeline
+    assert fresh.store.get_run(run["id"]) == run
+    assert fresh.store.get_job("mock-job")["run_id"] == run["id"]
+    assert (data / "hub-state.json").exists()
 
 
 def test_sync_catalog_imports_workflow_and_resolves_cluster(tmp_path, monkeypatch):

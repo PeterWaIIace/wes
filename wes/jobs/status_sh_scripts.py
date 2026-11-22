@@ -3,9 +3,8 @@ STATUS_HELPER_NAME = "wes_status.sh"
 
 # Uploaded into every remote job dir by StatusFile.write_helper(). The job's
 # injected job script calls it to
-# create/update wes.status in their working directory. For array tasks the
-# injected job script cd's into tasks/<index>/ first, so each array element
-# gets its own wes.status next to its work.
+# create/update wes.status. Array status files live in tasks/<index>/;
+# workflows choose their own working directory and optional WES_ARTIFACT_DIR.
 STATUS_HELPER_SCRIPT = """#!/bin/bash
 # wes_status.sh STATE [MESSAGE]
 # Create or update wes.status (YAML) in the current directory (atomic replace).
@@ -20,7 +19,7 @@ status="wes.status"
 tmp="${status}.tmp"
 cfg_dir="${WES_STATUS_CONFIG_DIR:-.}"
 cfg="$(ls "$cfg_dir"/*_config.json 2>/dev/null | head -n 1)"
-status_fields='state|updated|job_id|parent_namespace|array_index|node|partition|message'
+status_fields='state|updated|job_id|parent_namespace|array_index|node|partition|message|artifact_dir'
 
 json_get() {
     awk -F'"' -v k="$2" '$2 == k { print $4; exit }' "$1" 2>/dev/null
@@ -56,6 +55,7 @@ yaml_kv() {
     fi
     yaml_kv state "$state"
     yaml_kv updated "$(date '+%Y-%m-%d %H:%M:%S')"
+    if [ -n "${WES_ARTIFACT_DIR:-}" ]; then yaml_kv artifact_dir "$WES_ARTIFACT_DIR"; fi
     if [ -n "${SLURM_JOB_ID:-}" ]; then yaml_kv job_id "$SLURM_JOB_ID"; fi
     if [ -n "${SLURM_ARRAY_TASK_ID:-}" ]; then
         yaml_kv parent_namespace "$(json_get "$cfg" namespace)"
@@ -71,8 +71,8 @@ yaml_kv() {
 # the server: report RUNNING when the SLURM job starts and COMPLETED/FAILED
 # via an EXIT trap when it finishes.
 #
-# Array jobs get one work dir per element (tasks/<SLURM_ARRAY_TASK_ID>/) and
-# the snippet cd's into it before the job body runs. The status helper always
+# Array jobs get one status dir per element (tasks/<SLURM_ARRAY_TASK_ID>/).
+# The workflow chooses its own working directory. The status helper always
 # runs there, so every element owns a wes.status even if the job later cd's
 # elsewhere or changes the working directory.
 JOB_STATUS_SNIPPET = """\
@@ -82,7 +82,6 @@ export WES_STATUS_CONFIG_DIR="$wes_script_dir"
 if [ -n "${SLURM_ARRAY_TASK_ID:-}" ]; then
     wes_status_dir="$wes_script_dir/tasks/$SLURM_ARRAY_TASK_ID"
     mkdir -p "$wes_status_dir" || exit 1
-    cd "$wes_status_dir" || exit 1
 else
     wes_status_dir="$wes_script_dir"
 fi

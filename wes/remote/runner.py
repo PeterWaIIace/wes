@@ -6,6 +6,10 @@ import time
 
 
 class SshRunner:
+    # git clone of an LFS repo smudges all LFS objects during checkout (~640 MiB
+    # for NCIA-NATO-CHALLENGE, ~60 s from the HPC), so 45 s is too tight for clone.
+    command_timeout = 600.0
+
     def __init__(self, ssh_config: str, path_prefix: str = "") -> None:
         self.ssh_config = ssh_config
         self.path_prefix = path_prefix
@@ -28,6 +32,7 @@ class SshRunner:
             capture_output=True,
             text=True,
             check=False,
+            timeout=self.command_timeout,
         )
         if result.returncode != 0:
             err = result.stderr.strip() or f"exit code {result.returncode} (no stderr)"
@@ -103,7 +108,7 @@ class SshRunner:
         cmd = ["scp", file, dest]
         if r:
             cmd = ["scp", "-r", file, dest]
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=self.command_timeout)
         if result.returncode != 0:
             stderr = result.stderr.strip()
             if stderr:
@@ -116,7 +121,7 @@ class SshRunner:
         cmd = ["rsync", "-e", "ssh", src, cfile]
         if r:
             cmd = ["rsync", "-r", "--copy-links", "--no-inc-recursive", "-e", "ssh", src, cfile]
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=self.command_timeout)
         if result.returncode != 0:
             stderr = result.stderr.strip()
             if stderr:
