@@ -11,6 +11,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from wes.jobs.commands import (
+    GitCloneCommand,
+    RemoveDirCommand,
+    RunScriptCommand,
+    SbatchCommand,
+)
 from wes.jobs.status import (
     STATUS_FILENAME,
     JobStatus,
@@ -230,35 +236,6 @@ class ClientSsh(ClientItem):
         ok, result = self.ssh.run_command(cmd, retries=retries)
         return ok, result
 
-class Command:
-
-    def __init__(self):
-        pass
-
-class GitCloneCommand(Command):
-
-    def _set_ssh_host_file_to_null(self):
-        return "-o UserKnownHostsFile=/dev/null"
-
-    def _do_not_ask_host(self):
-        return "-o StrictHostKeyChecking=no"
-
-    def __init__(self, name, url, branch = None):
-        self.url = url
-        self.name = name
-        self.branch = branch
-        self.ssh_opts = f"{self._do_not_ask_host()} {self._set_ssh_host_file_to_null()}"
-
-    def string():
-        if self.branch:
-            clone_cmd = (
-                f"GIT_SSH_COMMAND='ssh {self.ssh_opts}' git clone -b "
-                f"{self.branch} {self.url} {self.name}"
-            )
-        else: 
-            clone_cmd = f"GIT_SSH_COMMAND='ssh {ssh_opts}' git clone {self.git_url} {self.name}"
-        return clone_cmd
-
 class Job:
     def __init__(self, task: Task, ssh_config: str, namespace: str | None = None):
         self.ssh_config = ssh_config
@@ -414,7 +391,7 @@ class Job:
             item.sync()
 
     def cleanup(self) -> None:
-        self.job_ssh_client.cmd(f"rm -rf {self.job_dir}")
+        self.job_ssh_client.cmd(RemoveDirCommand(self.job_dir).string())
 
     def _preprocess(self, item: SshItem, transform: Callable[[str], str], staging_dir: str) -> str:
         """Modify the item's local file content with ``transform`` and stage
@@ -467,29 +444,26 @@ class Job:
             return State.FAILED
 
         if self.pre_script:
-            ok, result = self.job_ssh_client.cmd(f"./{self.pre_script.r_name}")
+            ok, result = self.job_ssh_client.cmd(RunScriptCommand(self.pre_script.r_name).string())
             print(f"Pre-script output:\n{result}")
             if not ok:
                 print(f"Pre-script failed: {result}")
                 self.write_status(State.FAILED, "pre-script failed")
                 return State.FAILED
 
-        sbatch_cmd = f"sbatch --parsable --job-name={self.job_name}"
-        if self.task.partition:
-            sbatch_cmd += f" --partition={self.task.partition}"
-        if self.task.cpus:
-            sbatch_cmd += f" --cpus-per-task={self.task.cpus}"
-        if self.task.gpus:
-            sbatch_cmd += f" --gpus={self.task.gpus}"
-        if self.task.memory:
-            sbatch_cmd += f" --mem={self.task.memory}"
-        if self.task.time:
-            sbatch_cmd += f" --time={self.task.time}"
-        if self.task.nodelist:
-            sbatch_cmd += f" --nodelist={self.task.nodelist}"
-        sbatch_cmd += f" ./{self.script.r_name}"
-
-        ok, result = self.job_ssh_client.cmd(sbatch_cmd, retries=3)
+        ok, result = self.job_ssh_client.cmd(
+            SbatchCommand(
+                job_name=self.job_name,
+                script=self.script.r_name,
+                partition=self.task.partition,
+                cpus=self.task.cpus,
+                gpus=self.task.gpus,
+                memory=self.task.memory,
+                time=self.task.time,
+                nodelist=self.task.nodelist,
+            ).string(), 
+            retries=3
+        )
         if not ok:
             print(f"Job submission failed: {result}")
             self.write_status(State.FAILED, "sbatch submission failed")

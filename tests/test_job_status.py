@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
+from wes.jobs.commands import GitCloneCommand, RemoveDirCommand, RunScriptCommand, SbatchCommand
 from wes.jobs.job import Job, JobInfo, SshItem
 from wes.jobs.status import (
     STATUS_FILENAME,
@@ -236,6 +237,43 @@ def test_status_file_job_dir_exists() -> None:
         cmd = runner.run_command.call_args.args[0]
         assert cmd == "if [ -d task/ns ]; then echo yes; else echo no; fi"
         assert runner.run_command.call_args.kwargs["quiet"] is True
+
+
+def test_git_clone_command_string() -> None:
+    ssh_opts = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    with_branch = GitCloneCommand(name="repo", url="git@github.com:u/repo.git", branch="main")
+    assert with_branch.string() == (
+        f"GIT_SSH_COMMAND='ssh {ssh_opts}' git clone -b main git@github.com:u/repo.git repo"
+    )
+    without_branch = GitCloneCommand(name="repo", url="git@github.com:u/repo.git")
+    assert without_branch.string() == (
+        f"GIT_SSH_COMMAND='ssh {ssh_opts}' git clone git@github.com:u/repo.git repo"
+    )
+
+
+def test_sbatch_command_string() -> None:
+    full = SbatchCommand(
+        job_name="j",
+        script="job.sh",
+        partition="gpu",
+        cpus="4",
+        gpus="1",
+        memory="16G",
+        time="02:00:00",
+        nodelist="h32",
+    ).string()
+    assert full == (
+        "sbatch --parsable --job-name=j --partition=gpu --cpus-per-task=4 "
+        "--gpus=1 --mem=16G --time=02:00:00 --nodelist=h32 ./job.sh"
+    )
+    assert SbatchCommand(job_name="j", script="job.sh").string() == (
+        "sbatch --parsable --job-name=j ./job.sh"
+    )
+
+
+def test_misc_command_strings() -> None:
+    assert RemoveDirCommand("a/b c").string() == "rm -rf 'a/b c'"
+    assert RunScriptCommand("pre.sh").string() == "./pre.sh"
 
 
 def test_status_helper_script_writes_status_file() -> None:
